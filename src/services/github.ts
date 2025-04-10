@@ -352,9 +352,6 @@ export const fetchCommitsForRepo = async (
 				console.log(`Using authenticated user ${author} as commit author`);
 			} catch (error) {
 				console.error('Could not get authenticated user:', error);
-				// If we can't get the authenticated user and none was provided,
-				// we can't filter, so maybe return empty or fetch all?
-				// For now, let's proceed without author filter if it fails.
 				console.warn(
 					`Proceeding to fetch commits for ${repoOwner}/${repo} without author filter.`
 				);
