@@ -294,7 +294,7 @@ const setLastProcessedDate = (dateStr: string): void => {
 
 const calculateStreakAndLives = (
 	trackedCommits: Commit[]
-): { streakDays: number; lives: number } => {
+): { streakDays: number; lives: number; commitsToday: number } => {
 	const DAILY_GOAL = 3;
 	const BONUS_GOAL = DAILY_GOAL * 2; // 6 commits
 
@@ -377,10 +377,17 @@ const calculateStreakAndLives = (
 		currentStreak = 0;
 	}
 
+	// Calculate commitsToday
+	const commitsTodayCount = commitsByDate[todayStr] || 0;
+
 	console.log(
-		`Final calculation: Streak=${currentStreak}, Lives=${finalLives}`
+		`Final calculation: Streak=${currentStreak}, Lives=${finalLives}, CommitsToday=${commitsTodayCount}`
 	);
-	return { streakDays: currentStreak, lives: finalLives };
+	return {
+		streakDays: currentStreak,
+		lives: finalLives,
+		commitsToday: commitsTodayCount,
+	};
 };
 
 // Function to fetch all repositories for the authenticated user (including private/orgs)
@@ -1060,7 +1067,8 @@ export const fetchGitHubStats = async (
 			const finalRecentActivity = uniqueActivity.slice(0, 6);
 
 			// Calculate Streak and Lives based on tracked commits
-			const { streakDays, lives } = calculateStreakAndLives(trackedCommitData);
+			const { streakDays, lives, commitsToday } =
+				calculateStreakAndLives(trackedCommitData);
 
 			// Calculate Commits This Month based on tracked commits
 			const now = new Date();
@@ -1136,6 +1144,7 @@ export const fetchGitHubStats = async (
 					followers: userData.followers,
 					following: userData.following,
 				},
+				commitsToday,
 			};
 		} catch (userError) {
 			console.error(
