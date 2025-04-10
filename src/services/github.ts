@@ -326,40 +326,52 @@ export const fetchAllRepos = async (
 	}
 };
 
-// Function to fetch commits for a repository (all authors)
+// Function to fetch commits for a repository (filtered by author)
 export const fetchCommitsForRepo = async (
 	octokit: Octokit,
 	repoOwner: string,
-	repo: string
-	// authorUsername?: string // Removed author filter
+	repo: string,
+	authorUsername?: string // Added authorUsername parameter back
 ): Promise<Commit[]> => {
 	try {
-		console.log(`Fetching all commits for ${repoOwner}/${repo}`); // Updated log
+		console.log(
+			`Fetching commits by ${
+				authorUsername || 'authenticated user'
+			} for ${repoOwner}/${repo}`
+		); // Updated log
 		const commits: Commit[] = [];
 		let page = 1;
 		let hasMore = true;
 
-		// // If author is not provided, get the authenticated user // - Logic removed
-		// let author = authorUsername;
-		// if (!author) {
-		// 	try {
-		// 		const { data } = await octokit.rest.users.getAuthenticated();
-		// 		author = data.login;
-		// 		console.log(`Using authenticated user ${author} as commit author`);
-		// 	} catch (error) {
-		// 		console.error('Could not get authenticated user:', error);
-		// 	}
-		// }
+		// Get the authenticated user if author is not provided
+		let author = authorUsername;
+		if (!author) {
+			try {
+				const { data } = await octokit.rest.users.getAuthenticated();
+				author = data.login;
+				console.log(`Using authenticated user ${author} as commit author`);
+			} catch (error) {
+				console.error('Could not get authenticated user:', error);
+				// If we can't get the authenticated user and none was provided,
+				// we can't filter, so maybe return empty or fetch all?
+				// For now, let's proceed without author filter if it fails.
+				console.warn(
+					`Proceeding to fetch commits for ${repoOwner}/${repo} without author filter.`
+				);
+			}
+		}
 
 		while (hasMore) {
 			try {
 				console.log(
-					`Fetching page ${page} of commits for ${repoOwner}/${repo}` // Removed author from log
+					`Fetching page ${page} of commits for ${repoOwner}/${repo}${
+						author ? ', author: ' + author : ''
+					}` // Updated log
 				);
 				const { data } = await octokit.rest.repos.listCommits({
 					owner: repoOwner, // Repository owner (organization or username)
 					repo, // Repository name
-					// author, // Removed author filter to get all commits
+					author, // Re-added author filter
 					per_page: 100,
 					page,
 				});
@@ -786,13 +798,13 @@ export const fetchGitHubStats = async (
 
 				try {
 					// We need to use the repository owner (which might be an organization)
-					// and fetch ALL commits, not just the authenticated user's.
+					// and filter by the authenticated user's username as the author.
 					const repoOwner = repo.owner.login;
 					const repoCommits = await fetchCommitsForRepo(
 						octokit,
 						repoOwner,
-						repo.name
-						// username // Removed username argument
+						repo.name,
+						username // Pass username to filter commits by author
 					);
 					totalCommitApiCalls++; // Increment API call counter
 					console.log(
