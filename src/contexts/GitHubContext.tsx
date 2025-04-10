@@ -1,127 +1,187 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import {
+	GitHubStats,
+	checkAuth,
+	fetchGitHubStats,
+	handleAuthCallback,
+	loginWithGitHub,
+	logout,
+} from '../services/github';
 
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { checkAuth, loginWithGitHub, logout, fetchGitHubStats, handleAuthCallback, GitHubStats } from "../services/github";
-import { useToast } from "@/components/ui/use-toast";
-import { useLocation } from "react-router-dom";
+// Define context type
+interface GitHubContextType {
+	isAuthenticated: boolean;
+	isLoading: boolean;
+	stats: GitHubStats | null;
+	error: string | null;
+	login: () => Promise<void>;
+	logout: () => Promise<void>;
+	refresh: () => Promise<void>;
+}
 
-type GitHubContextType = {
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  githubStats: GitHubStats | null;
-  login: () => void;
-  logout: () => void;
-  refreshStats: () => Promise<void>;
-};
+// Create context with default values
+const GitHubContext = createContext<GitHubContextType>({
+	isAuthenticated: false,
+	isLoading: true,
+	stats: null,
+	error: null,
+	login: async () => {},
+	logout: async () => {},
+	refresh: async () => {},
+});
 
-const GitHubContext = createContext<GitHubContextType | undefined>(undefined);
+// Hook to use the GitHub context
+export const useGitHub = () => useContext(GitHubContext);
 
-export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [githubStats, setGithubStats] = useState<GitHubStats | null>(null);
-  const { toast } = useToast();
-  const location = useLocation();
+// Provider component to wrap app with GitHub context
+export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({
+	children,
+}) => {
+	const [isAuthenticated, setIsAuthenticated] = useState(false);
+	const [isLoading, setIsLoading] = useState(true);
+	const [stats, setStats] = useState<GitHubStats | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [token, setToken] = useState<string | null>(null);
 
-  useEffect(() => {
-    const checkAuthentication = async () => {
-      setIsLoading(true);
-      
-      if (location.search.includes('code=')) {
-        try {
-          const newToken = await handleAuthCallback();
-          if (newToken) {
-            setToken(newToken);
-            setIsAuthenticated(true);
-            toast({
-              title: "Yo! You're in!",
-              description: "Successfully connected to GitHub! Let's check your commit game!",
-            });
-          } else {
-            throw new Error("Failed to authenticate with GitHub");
-          }
-        } catch (error) {
-          console.error("Authentication error:", error);
-          toast({
-            title: "Authentication Failed",
-            description: "Couldn't connect to GitHub. Please try again.",
-            variant: "destructive",
-          });
-        }
-      } else {
-        const storedToken = checkAuth();
-        if (storedToken) {
-          setToken(storedToken);
-          setIsAuthenticated(true);
-        }
-      }
-      
-      setIsLoading(false);
-    };
-    
-    checkAuthentication();
-  }, [location.search, toast]);
+	// Fetch GitHub stats with the current token
+	const fetchStats = async (authToken: string) => {
+		setIsLoading(true);
+		setError(null);
 
-  useEffect(() => {
-    if (token) {
-      refreshStats();
-    }
-  }, [token]);
+		try {
+			console.log('Fetching GitHub stats...');
+			const githubStats = await fetchGitHubStats(authToken);
+			setStats(githubStats);
+			setError(null);
+		} catch (statsError: any) {
+			console.error('Error fetching GitHub stats:', statsError);
+			setError(
+				statsError?.message ||
+					'Failed to fetch GitHub data. Please try again later.'
+			);
+			setStats(null);
+		} finally {
+			setIsLoading(false);
+		}
+	};
 
-  const refreshStats = async () => {
-    if (!token) return;
-    
-    setIsLoading(true);
-    try {
-      const stats = await fetchGitHubStats(token);
-      setGithubStats(stats);
-    } catch (error) {
-      console.error("Failed to fetch GitHub stats:", error);
-      toast({
-        title: "Oops! Something went wrong",
-        description: "Couldn't fetch your GitHub stats, bro. Try again later!",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+	// Refresh stats manually
+	const refresh = async () => {
+		if (!token) {
+			console.error('Cannot refresh - no token available');
+			setError('Not logged in. Please login first.');
+			return;
+		}
 
-  const login = () => {
-    loginWithGitHub();
-  };
+		await fetchStats(token);
+	};
 
-  const handleLogout = () => {
-    logout();
-    setToken(null);
-    setIsAuthenticated(false);
-    setGithubStats(null);
-    toast({
-      title: "Catch ya later!",
-      description: "You've been logged out. Come back soon!",
-    });
-  };
+	// Check authentication status and handle callback if needed
+	const checkAuthentication = async () => {
+		try {
+			setIsLoading(true);
+			setError(null);
 
-  return (
-    <GitHubContext.Provider
-      value={{
-        isAuthenticated,
-        isLoading,
-        githubStats,
-        login,
-        logout: handleLogout,
-        refreshStats,
-      }}
-    >
-      {children}
-    </GitHubContext.Provider>
-  );
-};
+			// Clear error URL params if they exist
+			const url = new URL(window.location.href);
+			if (url.searchParams.has('error')) {
+				// Remove error params from URL
+				url.searchParams.delete('error');
+				url.searchParams.delete('error_code');
+				url.searchParams.delete('error_description');
+				window.history.replaceState({}, document.title, url.toString());
 
-export const useGitHub = () => {
-  const context = useContext(GitHubContext);
-  if (context === undefined) {
-    throw new Error("useGitHub must be used within a GitHubProvider");
-  }
-  return context;
+				// Handle the error from URL
+				const errorMsg = 'Authentication failed. Please try again.';
+				setError(errorMsg);
+				setIsAuthenticated(false);
+				setIsLoading(false);
+				return;
+			}
+
+			// Handle auth callback if we're returning from GitHub
+			try {
+				const newToken = await handleAuthCallback();
+
+				// If no token from callback, check for existing auth
+				const existingToken = newToken || (await checkAuth());
+
+				if (!existingToken) {
+					setIsAuthenticated(false);
+					setToken(null);
+					setIsLoading(false);
+					return;
+				}
+
+				// Set authenticated status and token
+				setIsAuthenticated(true);
+				setToken(existingToken);
+
+				// Fetch GitHub stats
+				await fetchStats(existingToken);
+			} catch (callbackError: any) {
+				console.error('Authentication callback error:', callbackError);
+				setError(
+					callbackError?.message || 'Failed to authenticate with GitHub'
+				);
+				setIsAuthenticated(false);
+				setToken(null);
+			}
+		} catch (authError: any) {
+			console.error('Authentication error:', authError);
+			setError(
+				authError?.message || 'Error: Failed to authenticate with GitHub'
+			);
+			setIsAuthenticated(false);
+			setToken(null);
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	// Handle login
+	const login = async () => {
+		try {
+			setError(null);
+			await loginWithGitHub();
+		} catch (loginError) {
+			console.error('Login error:', loginError);
+			setError('Error logging in with GitHub');
+		}
+	};
+
+	// Handle logout
+	const handleLogout = async () => {
+		try {
+			setIsLoading(true);
+			await logout();
+			setIsAuthenticated(false);
+			setStats(null);
+			setToken(null);
+		} catch (logoutError) {
+			console.error('Logout error:', logoutError);
+			setError('Error logging out');
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	// Check authentication on mount
+	useEffect(() => {
+		checkAuthentication();
+	}, []);
+
+	const value = {
+		isAuthenticated,
+		isLoading,
+		stats,
+		error,
+		login,
+		logout: handleLogout,
+		refresh,
+	};
+
+	return (
+		<GitHubContext.Provider value={value}>{children}</GitHubContext.Provider>
+	);
 };

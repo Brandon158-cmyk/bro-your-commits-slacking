@@ -64,6 +64,38 @@ This project is built with:
 
 Simply open [Lovable](https://lovable.dev/projects/991747f4-8458-43cb-b637-f16b7864051b) and click on Share -> Publish.
 
+## Setting up GitHub OAuth with Supabase
+
+To use your actual GitHub data with Supabase authentication:
+
+1. Create a Supabase project:
+
+   - Go to [Supabase](https://supabase.com/) and create a new project
+   - Note your project URL and anon key from the API settings
+
+2. Configure GitHub OAuth provider in Supabase:
+
+   - In your Supabase project, go to Authentication → Providers → GitHub
+   - Toggle GitHub to enable it
+   - Create a GitHub OAuth application as described below
+   - Set the GitHub Client ID and Client Secret in Supabase
+
+3. Create a GitHub OAuth application:
+
+   - Go to your GitHub Settings → Developer settings → OAuth Apps → New OAuth App
+   - Set Application name (e.g., "Bro Your Commits Slacking")
+   - Set Homepage URL to your app's URL
+   - Set Authorization callback URL to: `https://[YOUR_SUPABASE_PROJECT_REF].supabase.co/auth/v1/callback`
+   - Register the application
+
+4. Configure environment variables:
+
+   - Copy `.env.example` to `.env`
+   - Set `VITE_SUPABASE_URL` to your Supabase project URL
+   - Set `VITE_SUPABASE_ANON_KEY` to your Supabase anon key
+
+5. Restart your application and log in with GitHub to see your real data
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes it is!

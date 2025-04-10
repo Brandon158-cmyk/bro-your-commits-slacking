@@ -1,5 +1,5 @@
-
 import { Octokit } from 'octokit';
+import { supabase } from '../lib/supabase';
 
 // This service handles GitHub API interactions using Octokit
 
@@ -22,49 +22,158 @@ export type GitHubStats = {
 	fullName?: string; // Add full name if available
 };
 
-// GitHub OAuth configuration
-const CLIENT_ID = 'Iv23liQroThNOvKnNBzj'; // Replace with your GitHub OAuth App client ID
-const REDIRECT_URI = window.location.origin + '/'; // Use the application's origin as the base URL
-const GITHUB_AUTH_URL = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=repo,user`;
-
-// Function to handle GitHub OAuth login
-export const loginWithGitHub = () => {
-	console.log("Initiating GitHub login with redirect URI:", REDIRECT_URI);
-	// Redirect to GitHub for authentication
-	window.location.href = GITHUB_AUTH_URL;
-};
-
-// Function to extract the code from URL after GitHub redirects back
-export const handleAuthCallback = async (): Promise<string | null> => {
-	const urlParams = new URLSearchParams(window.location.search);
-	const code = urlParams.get('code');
-
-	if (!code) return null;
-
-	// Clear the URL to remove the code
-	window.history.replaceState({}, document.title, window.location.pathname);
+// Function to handle GitHub OAuth login via Supabase
+export const loginWithGitHub = async () => {
+	console.log('Initiating GitHub login with Supabase');
 
 	try {
-		// In a real implementation, you would exchange this code for an access token
-		// This typically requires a backend service due to CORS limitations
-		// For this demo, we'll simulate token exchange with localStorage
-		const token = `github_${code}`;
-		localStorage.setItem('github_token', token);
-		return token;
+		const { data, error } = await supabase.auth.signInWithOAuth({
+			provider: 'github',
+			options: {
+				redirectTo: window.location.origin,
+				// Use proper format for GitHub scopes (space-separated)
+				scopes: 'repo read:user user:email',
+			},
+		});
+
+		if (error) {
+			throw error;
+		}
+
+		console.log('GitHub login initiated:', data);
 	} catch (error) {
-		console.error('Error during GitHub authorization:', error);
+		console.error('Error starting GitHub login:', error);
+		throw error;
+	}
+};
+
+// Function to handle auth session state
+export const handleAuthCallback = async (): Promise<string | null> => {
+	try {
+		// Check for errors in URL
+		const url = new URL(window.location.href);
+		const errorParam = url.searchParams.get('error');
+		const errorDescription = url.searchParams.get('error_description');
+
+		if (errorParam) {
+			console.error(`Auth error: ${errorParam} - ${errorDescription}`);
+			throw new Error(
+				`Authentication error: ${errorDescription || errorParam}`
+			);
+		}
+
+		// Handle hash fragment errors (Supabase sometimes puts errors in hash)
+		const hashParams = new URLSearchParams(window.location.hash.substring(1));
+		const hashError = hashParams.get('error');
+		const hashErrorDescription = hashParams.get('error_description');
+
+		if (hashError) {
+			console.error(`Auth hash error: ${hashError} - ${hashErrorDescription}`);
+			throw new Error(
+				`Authentication error: ${hashErrorDescription || hashError}`
+			);
+		}
+
+		// Get the current session
+		const {
+			data: { session },
+			error,
+		} = await supabase.auth.getSession();
+
+		if (error) {
+			console.error('Error getting session:', error);
+			return null;
+		}
+
+		if (!session) {
+			console.log('No active session found');
+			return null;
+		}
+
+		console.log('Session obtained:', {
+			hasProviderToken: !!session.provider_token,
+			hasAccessToken: !!session.access_token,
+			user: session.user?.id,
+		});
+
+		// Try to get provider token - this contains GitHub access token
+		const { provider_token, access_token } = session;
+
+		if (provider_token) {
+			console.log('Provider token found, storing in localStorage');
+			// Store the GitHub token in localStorage for app use
+			localStorage.setItem('github_token', provider_token);
+			return provider_token;
+		} else if (access_token) {
+			// Try to get the GitHub token from the provider token in user metadata
+			try {
+				// Fetch the user details to see if we have more data
+				const {
+					data: { user },
+					error: userError,
+				} = await supabase.auth.getUser();
+
+				if (userError) {
+					throw userError;
+				}
+
+				// Check for GitHub specific data in provider data
+				if (
+					user?.app_metadata?.provider === 'github' &&
+					user?.app_metadata?.provider_token
+				) {
+					const githubToken = user.app_metadata.provider_token;
+					console.log('Found GitHub token in user metadata');
+					localStorage.setItem('github_token', githubToken);
+					return githubToken;
+				}
+			} catch (metadataError) {
+				console.error('Error getting user metadata:', metadataError);
+			}
+
+			// If no provider token but we have an access token, we can try to use that
+			console.log('No provider token found, using access token instead');
+			localStorage.setItem('github_token', access_token);
+			return access_token;
+		}
+
+		console.warn('Session exists but no token found');
 		return null;
+	} catch (error) {
+		console.error('Error during GitHub session handling:', error);
+		throw error; // Re-throw to allow context to show error message
 	}
 };
 
 // Function to check if user is authenticated
-export const checkAuth = (): string | null => {
-	return localStorage.getItem('github_token');
+export const checkAuth = async (): Promise<string | null> => {
+	// First check localStorage for existing token
+	const localToken = localStorage.getItem('github_token');
+
+	if (localToken) {
+		return localToken;
+	}
+
+	// Otherwise check Supabase session
+	try {
+		const {
+			data: { session },
+		} = await supabase.auth.getSession();
+		if (session?.provider_token) {
+			localStorage.setItem('github_token', session.provider_token);
+			return session.provider_token;
+		}
+	} catch (error) {
+		console.error('Error checking auth:', error);
+	}
+
+	return null;
 };
 
 // Function to logout user
-export const logout = () => {
+export const logout = async () => {
 	localStorage.removeItem('github_token');
+	await supabase.auth.signOut();
 };
 
 // Function to calculate commit streaks
@@ -103,45 +212,79 @@ const calculateStreak = (commits: any[]): number => {
 // Function to fetch GitHub stats using Octokit
 export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 	try {
-		// For demo purposes, we're using a simulated token
-		// In a real app with backend, this would be a real GitHub token
+		console.log(
+			'Starting to fetch GitHub stats with token:',
+			token.substring(0, 10) + '...'
+		);
 
-		// Check if token starts with "github_" prefix (our simulated token)
-		if (token.startsWith('github_')) {
-			// Initialize Octokit with the code as token (this won't work in production)
-			// This is just for demo purposes - in a real app, you need a backend to exchange the code for a token
-			const octokit = new Octokit();
-			
-			try {
-				// Try to get authenticated user information
-				const { data: userData } = await octokit.rest.users.getAuthenticated();
-				
-				// If we get here, the token somehow worked (unlikely in this demo)
-				console.log("Successfully authenticated with GitHub API", userData);
-				return fetchRealGitHubStats(octokit, userData.login);
-			} catch (error) {
-				console.warn("Using simulated GitHub data since authentication failed:", error);
-				return generateSimulatedStats();
-			}
+		// Initialize Octokit with the user's token
+		const octokit = new Octokit({ auth: token });
+
+		try {
+			// Test API access
+			const { data: rateLimit } = await octokit.rest.rateLimit.get();
+			console.log('GitHub API rate limit:', rateLimit.resources.core);
+		} catch (rateLimitError) {
+			console.error('Error checking rate limit:', rateLimitError);
+			// Continue anyway, this was just a test
 		}
 
-		// Initialize Octokit with the token
-		const octokit = new Octokit({ auth: token });
-		
 		// Get user information
-		const { data: userData } = await octokit.rest.users.getAuthenticated();
-		console.log("Authenticated GitHub user:", userData.login);
-		
-		return fetchRealGitHubStats(octokit, userData.login);
+		try {
+			const { data: userData } = await octokit.rest.users.getAuthenticated();
+			console.log('Authenticated GitHub user:', userData.login);
+
+			return fetchRealGitHubStats(octokit, userData.login);
+		} catch (userError: any) {
+			console.error('Error getting authenticated user:', userError);
+
+			// If we get a 401 unauthorized error, the token might be invalid
+			if (userError.status === 401) {
+				console.log('Token appears to be invalid, trying to refresh session');
+
+				// Try to get a fresh token from Supabase
+				const {
+					data: { session },
+				} = await supabase.auth.getSession();
+				if (session?.provider_token) {
+					console.log('Got fresh token from session, retrying');
+					localStorage.setItem('github_token', session.provider_token);
+
+					// Reinitialize Octokit with the new token
+					const newOctokit = new Octokit({ auth: session.provider_token });
+					const { data: newUserData } =
+						await newOctokit.rest.users.getAuthenticated();
+					return fetchRealGitHubStats(newOctokit, newUserData.login);
+				}
+			}
+
+			// If we can't get a username, let's ask the user directly
+			const username = prompt(
+				'Could not determine your GitHub username. Please enter it manually:',
+				''
+			);
+			if (username) {
+				console.log('Using manually entered username:', username);
+				return fetchRealGitHubStats(octokit, username);
+			}
+
+			throw new Error(
+				'Could not get GitHub username. Please try logging in again.'
+			);
+		}
 	} catch (error) {
 		console.error('Error fetching GitHub stats:', error);
-		// If real API call fails, fall back to simulated data
-		return generateSimulatedStats();
+		throw new Error(
+			'Failed to fetch GitHub data. Please check your authentication and try again.'
+		);
 	}
 };
 
 // Function to fetch real GitHub stats
-const fetchRealGitHubStats = async (octokit: Octokit, username: string): Promise<GitHubStats> => {
+const fetchRealGitHubStats = async (
+	octokit: Octokit,
+	username: string
+): Promise<GitHubStats> => {
 	try {
 		// Get user information for profile data
 		const { data: userData } = await octokit.rest.users.getByUsername({
@@ -187,7 +330,7 @@ const fetchRealGitHubStats = async (octokit: Octokit, username: string): Promise
 
 		// Sort top repos by number of commits
 		topRepos.sort((a, b) => b.commits - a.commits);
-		
+
 		// Limit to top 3 repos
 		topRepos = topRepos.slice(0, 3);
 
@@ -234,45 +377,4 @@ const fetchRealGitHubStats = async (octokit: Octokit, username: string): Promise
 		console.error('Error fetching real GitHub stats:', error);
 		throw error;
 	}
-};
-
-// Generate simulated stats for demo purposes
-const generateSimulatedStats = (): GitHubStats => {
-	// Generate some semi-realistic data
-	const randomFactor = Math.random();
-
-	const totalCommits = Math.floor(randomFactor * 500) + 50;
-	const recentCommits = Math.floor(randomFactor * 30);
-	const streakDays = Math.floor(randomFactor * 14);
-
-	return {
-		totalCommits,
-		recentCommits,
-		streakDays,
-		lastCommitDate: new Date().toISOString(),
-		topRepos: [
-			{ name: 'awesome-project', commits: Math.floor(randomFactor * 100) + 10 },
-			{ name: 'personal-website', commits: Math.floor(randomFactor * 50) + 5 },
-			{ name: 'side-project', commits: Math.floor(randomFactor * 30) + 2 },
-		],
-		recentActivity: Array(5)
-			.fill(null)
-			.map((_, i) => ({
-				sha: `abc${i}def${Math.floor(Math.random() * 1000)}`,
-				date: new Date(Date.now() - i * 86400000).toISOString(),
-				message: [
-					'Fix critical bug in login flow',
-					'Update README with new instructions',
-					'Add new feature for premium users',
-					'Refactor code for better performance',
-					'Merge pull request from teammate',
-				][Math.floor(Math.random() * 5)],
-				url: `https://github.com/user/repo/commit/abc${i}def${Math.floor(
-					Math.random() * 1000
-				)}`,
-			})),
-		avatar: "https://avatars.githubusercontent.com/u/12345678",
-		username: "github-user",
-		fullName: "GitHub User",
-	};
 };
