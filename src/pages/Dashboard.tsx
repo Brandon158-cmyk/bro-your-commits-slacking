@@ -119,9 +119,9 @@ const Dashboard = () => {
 
 	return (
 		<div className='min-h-screen flex flex-col p-4 md:p-8'>
-			{showGuide && stats?.allRepositories && (
+			{/* {showGuide && stats?.allRepositories && (
 				<RepoGuide onToggleSettings={toggleRepoSettings} />
-			)}
+			)} */}
 
 			<div className='max-w-4xl w-full mx-auto'>
 				<div className='flex justify-between items-center mb-6'>
@@ -150,6 +150,7 @@ const Dashboard = () => {
 						<HandDrawnButton
 							variant='outline'
 							onClick={toggleRepoSettings}
+							disabled={isLoading}
 							className='flex items-center gap-2'
 						>
 							<Settings className='h-4 w-4' />
