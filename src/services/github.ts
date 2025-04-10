@@ -20,7 +20,7 @@ export type GitHubStats = {
 	avatar?: string; // Add avatar URL
 	username?: string; // Add GitHub username
 	fullName?: string; // Add full name if available
-	allRepositories?: { name: string; isTracked: boolean }[]; // Add all repos with tracking status
+	allRepositories?: { name: string; isTracked: boolean; isPrivate?: boolean }[]; // Add all repos with tracking status
 };
 
 // Function to handle GitHub OAuth login via Supabase
@@ -32,7 +32,7 @@ export const loginWithGitHub = async () => {
 			provider: 'github',
 			options: {
 				redirectTo: window.location.origin,
-				// Use proper format for GitHub scopes (space-separated)
+				// Update scopes to include private repos
 				scopes: 'repo read:user user:email',
 			},
 		});
@@ -362,6 +362,7 @@ const fetchRealGitHubStats = async (
 			username,
 			sort: 'updated',
 			per_page: 100,
+			type: 'all', // Include both public and private repos
 		});
 
 		// Get tracked and excluded repos
@@ -374,6 +375,7 @@ const fetchRealGitHubStats = async (
 			isTracked:
 				trackedRepos.includes(repo.name) ||
 				(!trackedRepos.length && !excludedRepos.includes(repo.name)),
+			isPrivate: repo.private, // Add private status
 		}));
 
 		// Filter repos based on tracked/excluded

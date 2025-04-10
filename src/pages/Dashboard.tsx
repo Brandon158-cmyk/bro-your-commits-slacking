@@ -13,6 +13,8 @@ import {
 	X,
 	ChevronDown,
 	ChevronUp,
+	Lock,
+	Unlock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { HandDrawnButton } from '@/components/custom/hand-drawn-button';
@@ -23,12 +25,14 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toggleRepositoryTracking } from '@/services/github';
+import { RepoGuide } from '@/components/custom/RepoGuide';
 
 const Dashboard = () => {
 	const navigate = useNavigate();
 	const { isAuthenticated, isLoading, stats, error, logout, refresh } =
 		useGitHub();
 	const [showRepoSettings, setShowRepoSettings] = useState(false);
+	const [showGuide, setShowGuide] = useState(true);
 
 	React.useEffect(() => {
 		if (!isAuthenticated) {
@@ -59,6 +63,10 @@ const Dashboard = () => {
 
 	const toggleRepoSettings = () => {
 		setShowRepoSettings(!showRepoSettings);
+		// Hide the guide when settings are opened
+		if (!showRepoSettings) {
+			setShowGuide(false);
+		}
 	};
 
 	if (!isAuthenticated) {
@@ -90,6 +98,11 @@ const Dashboard = () => {
 
 	return (
 		<div className='min-h-screen flex flex-col p-4 md:p-8'>
+			{/* Animated character guide */}
+			{showGuide && stats?.allRepositories && (
+				<RepoGuide onToggleSettings={toggleRepoSettings} />
+			)}
+
 			<div className='max-w-4xl w-full mx-auto'>
 				<div className='flex justify-between items-center mb-6'>
 					<div className='flex items-center gap-4'>
@@ -160,13 +173,27 @@ const Dashboard = () => {
 						<p className='text-sm text-pencil mb-4'>
 							Select which repositories to include in your stats:
 						</p>
+						<div className='flex items-center justify-between mb-4 px-2 font-handwritten'>
+							<span>
+								<Lock className='inline h-4 w-4 mr-1' />
+								Private repos are now included!
+							</span>
+							<span className='text-xs text-pencil'>
+								(These will only be visible to you)
+							</span>
+						</div>
 						<div className='grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-2'>
 							{stats.allRepositories.map((repo) => (
 								<div
 									key={repo.name}
 									className='flex items-center justify-between border border-pencil-light rounded-lg p-2'
 								>
-									<span className='truncate mr-2'>{repo.name}</span>
+									<div className='flex items-center truncate mr-2'>
+										<span className='truncate'>{repo.name}</span>
+										{repo.isPrivate && (
+											<Lock className='ml-1 h-3 w-3 text-pencil' />
+										)}
+									</div>
 									<HandDrawnButton
 										variant={repo.isTracked ? 'default' : 'outline'}
 										size='sm'
