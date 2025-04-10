@@ -146,7 +146,7 @@ const Dashboard = () => {
 							</span>
 						)}
 					</div>
-					<div className='flex gap-2'>
+					<div className='flex flex-wrap gap-2 justify-end'>
 						<HandDrawnButton
 							variant='outline'
 							onClick={toggleRepoSettings}
@@ -202,11 +202,11 @@ const Dashboard = () => {
 								(Your complete contribution history is included)
 							</span>
 						</div>
-						<div className='grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-2'>
+						<div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-2'>
 							{stats.allRepositories.map((repo) => (
 								<div
 									key={repo.name}
-									className='flex items-center justify-between border border-pencil-light rounded-lg p-2'
+									className='flex flex-col sm:flex-row items-start sm:items-center justify-between border border-pencil-light rounded-lg p-2 gap-2'
 								>
 									<div className='flex items-center truncate mr-2'>
 										<span className='truncate'>{repo.name}</span>
@@ -223,7 +223,7 @@ const Dashboard = () => {
 										disabled={togglingRepo === repo.name}
 										className={cn(
 											repo.isTracked ? 'bg-ink-blue text-white' : '',
-											'w-[120px]'
+											'w-full sm:w-[120px] flex-shrink-0'
 										)}
 									>
 										{togglingRepo === repo.name ? (
@@ -328,7 +328,7 @@ const Dashboard = () => {
 										</li>
 									</ul>
 								</div>
-								<div className='text-6xl font-handwritten text-ink-blue'>
+								<div className='text-4xl sm:text-6xl font-handwritten text-ink-blue'>
 									{stats.totalCommits}
 								</div>
 							</div>
@@ -341,7 +341,7 @@ const Dashboard = () => {
 									<p>{getStreakMessage()}</p>
 								</div>
 								<div className='flex flex-col items-end'>
-									<div className='text-6xl font-handwritten text-ink-red'>
+									<div className='text-4xl sm:text-6xl font-handwritten text-ink-red'>
 										{stats.streakDays}
 									</div>
 									<div className='flex items-center text-sm mt-1'>
@@ -386,8 +386,8 @@ const Dashboard = () => {
 												{index > 0 && (
 													<Separator className='my-4 border-pencil-light' />
 												)}
-												<div className='flex justify-between items-start'>
-													<div>
+												<div className='flex flex-col sm:flex-row justify-between items-start sm:items-center'>
+													<div className='mb-1 sm:mb-0'>
 														<p className='font-medium'>{activity.summary}</p>
 														<p className='text-sm text-pencil'>
 															{format(new Date(activity.date), 'MMM d, h:mm a')}
@@ -398,7 +398,7 @@ const Dashboard = () => {
 															href={activity.url}
 															target='_blank'
 															rel='noopener noreferrer'
-															className='text-ink-blue hover:underline flex items-center group-hover:opacity-100 opacity-0 transition-opacity'
+															className='text-ink-blue hover:underline flex items-center self-start sm:self-center'
 														>
 															View <ArrowUpRight className='w-4 h-4 ml-1' />
 														</a>
@@ -428,7 +428,7 @@ const Dashboard = () => {
 								<h3 className='text-xl font-handwritten mb-4'>
 									Top Repositories
 								</h3>
-								<div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+								<div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4'>
 									{stats.topRepos.map((repo) => (
 										<div
 											key={repo.name}
