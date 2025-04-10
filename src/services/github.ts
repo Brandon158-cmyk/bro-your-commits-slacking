@@ -3,24 +3,73 @@ import { supabase } from '../lib/supabase';
 
 // This service handles GitHub API interactions using Octokit
 
+// Repository interface for GitHub repos
+interface Repository {
+	id: number;
+	node_id: string;
+	name: string;
+	full_name: string;
+	owner: {
+		login: string;
+		id: number;
+		avatar_url: string;
+		[key: string]: any;
+	};
+	private: boolean;
+	fork: boolean;
+	stargazers_count?: number;
+	forks_count?: number;
+	[key: string]: any; // Allow other properties from GitHub API
+}
+
+// Contribution calendar data from GraphQL
+interface ContributionCalendar {
+	totalContributions: number;
+	weeks: Array<{
+		contributionDays: Array<{
+			date: string;
+			contributionCount: number;
+		}>;
+	}>;
+}
+
 export type Commit = {
 	sha: string;
 	date: string;
 	message: string;
 	url: string;
+	repo?: string; // Optional repo property to track which repo a commit belongs to
 };
 
 export type GitHubStats = {
-	totalCommits: number;
-	recentCommits: number;
-	streakDays: number;
-	lastCommitDate: string;
-	topRepos: { name: string; commits: number }[];
-	recentActivity: Commit[];
-	avatar?: string; // Add avatar URL
-	username?: string; // Add GitHub username
-	fullName?: string; // Add full name if available
-	allRepositories?: { name: string; isTracked: boolean; isPrivate?: boolean }[]; // Add all repos with tracking status
+	totalCommits?: number;
+	recentCommits?: number;
+	streakDays?: number;
+	lastCommitDate?: string;
+	topRepos?: { name: string; commits: number }[];
+	recentActivity?: Commit[];
+	avatar?: string;
+	username?: string;
+	fullName?: string;
+	allRepositories?: { name: string; isTracked: boolean; isPrivate?: boolean }[];
+	contributionCalendar?: ContributionCalendar;
+	totalContributions?: number;
+	detailedCommits?: number;
+	commitData?: Commit[];
+	stars?: number;
+	forks?: number;
+	profileInfo?: {
+		name: string;
+		avatar: string;
+		profileUrl: string;
+		username: string;
+		bio?: string;
+		company?: string;
+		location?: string;
+		blog?: string;
+		followers: number;
+		following: number;
+	};
 };
 
 // Function to handle GitHub OAuth login via Supabase
@@ -177,12 +226,12 @@ export const logout = async () => {
 };
 
 // Function to calculate commit streaks
-const calculateStreak = (commits: any[]): number => {
+const calculateStreak = (commits: Commit[]): number => {
 	if (!commits.length) return 0;
 
 	// Sort commits by date (newest first)
 	const sortedDates = commits
-		.map((commit) => new Date(commit.commit.author.date))
+		.map((commit) => new Date(commit.date))
 		.sort((a, b) => b.getTime() - a.getTime());
 
 	// Calculate current streak
@@ -209,8 +258,206 @@ const calculateStreak = (commits: any[]): number => {
 	return streakDays;
 };
 
+// Function to fetch all repositories for a user
+export const fetchAllRepos = async (
+	octokit: Octokit,
+	username: string
+): Promise<Repository[]> => {
+	try {
+		console.log(`Fetching repositories for ${username}`);
+		const repos: Repository[] = [];
+		let page = 1;
+		let hasMore = true;
+
+		while (hasMore) {
+			const { data } = await octokit.rest.repos.listForUser({
+				username,
+				per_page: 100,
+				page,
+			});
+
+			if (data.length === 0) {
+				hasMore = false;
+			} else {
+				repos.push(...data);
+				page++;
+			}
+		}
+
+		console.log(`Found ${repos.length} repositories for ${username}`);
+		return repos;
+	} catch (error) {
+		console.error('Error fetching repositories:', error);
+		return [];
+	}
+};
+
+// Function to fetch commits for a repository
+export const fetchCommitsForRepo = async (
+	octokit: Octokit,
+	repoOwner: string,
+	repo: string,
+	authorUsername?: string
+): Promise<Commit[]> => {
+	try {
+		console.log(`Fetching commits for ${repoOwner}/${repo}`);
+		const commits: Commit[] = [];
+		let page = 1;
+		let hasMore = true;
+
+		// If author is not provided, get the authenticated user
+		let author = authorUsername;
+		if (!author) {
+			try {
+				const { data } = await octokit.rest.users.getAuthenticated();
+				author = data.login;
+				console.log(`Using authenticated user ${author} as commit author`);
+			} catch (error) {
+				console.error('Could not get authenticated user:', error);
+			}
+		}
+
+		while (hasMore) {
+			try {
+				console.log(
+					`Fetching page ${page} of commits for ${repoOwner}/${repo}, author: ${author}`
+				);
+				const { data } = await octokit.rest.repos.listCommits({
+					owner: repoOwner, // Repository owner (organization or username)
+					repo, // Repository name
+					author, // Author's GitHub username (should be the authenticated user)
+					per_page: 100,
+					page,
+				});
+
+				console.log(`Found ${data.length} commits on page ${page} for ${repo}`);
+
+				if (data.length === 0) {
+					hasMore = false;
+				} else {
+					data.forEach((commit) => {
+						if (commit.commit && commit.sha) {
+							// Log the date of the commit being added
+							const commitDateStr = commit.commit.author?.date || 'No Date';
+							console.log(
+								`   Adding commit SHA: ${commit.sha.substring(
+									0,
+									7
+								)}, Date: ${commitDateStr}`
+							);
+							commits.push({
+								sha: commit.sha,
+								date:
+									commitDateStr === 'No Date'
+										? new Date().toISOString()
+										: commitDateStr,
+								message: commit.commit.message || '',
+								url:
+									commit.html_url || `https://github.com/${repoOwner}/${repo}`,
+								repo,
+							});
+						}
+					});
+					page++;
+
+					// If we got less than 100 commits, we've reached the end for this repo
+					if (data.length < 100) {
+						hasMore = false;
+					}
+				}
+			} catch (error) {
+				console.error(
+					`Error fetching page ${page} of commits for ${repo}:`,
+					error
+				);
+				hasMore = false; // Stop pagination on error for this repo
+			}
+		}
+
+		console.log(
+			`Found ${commits.length} total commits for ${repoOwner}/${repo}`
+		);
+		return commits;
+	} catch (error) {
+		console.error(`Error in fetchCommitsForRepo for ${repo}:`, error);
+		return [];
+	}
+};
+
+// Function to fetch contribution data using GraphQL
+export const fetchContributionData = async (
+	octokit: Octokit,
+	username: string
+): Promise<ContributionCalendar | null> => {
+	try {
+		console.log(`Fetching contribution data for ${username}`);
+
+		const query = `
+			query($username: String!) {
+				user(login: $username) {
+					contributionsCollection {
+						contributionCalendar {
+							totalContributions
+							weeks {
+								contributionDays {
+									contributionCount
+									date
+								}
+							}
+						}
+					}
+				}
+			}
+		`;
+
+		const response: any = await octokit.graphql(query, { username });
+		const calendar = response.user.contributionsCollection.contributionCalendar;
+
+		if (calendar) {
+			console.log(
+				`Total contributions for ${username}: ${calendar.totalContributions}`
+			);
+
+			// Count contributions by month
+			const contributionsByMonth: Record<string, number> = {};
+
+			calendar.weeks.forEach((week: any) => {
+				week.contributionDays.forEach((day: any) => {
+					const date = new Date(day.date);
+					const monthKey = `${date.getFullYear()}-${String(
+						date.getMonth() + 1
+					).padStart(2, '0')}`;
+
+					if (!contributionsByMonth[monthKey]) {
+						contributionsByMonth[monthKey] = 0;
+					}
+
+					contributionsByMonth[monthKey] += day.contributionCount;
+				});
+			});
+
+			console.log('Contributions by month:');
+			Object.entries(contributionsByMonth)
+				.sort((a, b) => a[0].localeCompare(b[0]))
+				.forEach(([month, count]) => {
+					console.log(`  ${month}: ${count} contributions`);
+				});
+
+			return calendar;
+		} else {
+			console.log('No contribution calendar data found');
+			return null;
+		}
+	} catch (error) {
+		console.error('Error fetching contribution data:', error);
+		return null;
+	}
+};
+
 // Function to fetch GitHub stats using Octokit
-export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
+export const fetchGitHubStats = async (
+	token: string
+): Promise<GitHubStats | null> => {
 	try {
 		console.log(
 			'Starting to fetch GitHub stats with token:',
@@ -234,49 +481,243 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 			const { data: userData } = await octokit.rest.users.getAuthenticated();
 			console.log('Authenticated GitHub user:', userData.login);
 
-			return fetchRealGitHubStats(octokit, userData.login);
-		} catch (userError: any) {
-			console.error('Error getting authenticated user:', userError);
+			const username = userData.login;
 
-			// If we get a 401 unauthorized error, the token might be invalid
-			if (userError.status === 401) {
-				console.log('Token appears to be invalid, trying to refresh session');
+			// Get all repositories for this user
+			const allRepos = await fetchAllRepos(octokit, username);
+			const userRepos = allRepos.filter((repo) => !repo.fork);
 
-				// Try to get a fresh token from Supabase
-				const {
-					data: { session },
-				} = await supabase.auth.getSession();
-				if (session?.provider_token) {
-					console.log('Got fresh token from session, retrying');
-					localStorage.setItem('github_token', session.provider_token);
+			// Get contribution calendar data from GraphQL API
+			const contributionCalendar = await fetchContributionData(
+				octokit,
+				username
+			);
+			const totalContributions = contributionCalendar?.totalContributions || 0;
 
-					// Reinitialize Octokit with the new token
-					const newOctokit = new Octokit({ auth: session.provider_token });
-					const { data: newUserData } =
-						await newOctokit.rest.users.getAuthenticated();
-					return fetchRealGitHubStats(newOctokit, newUserData.login);
+			// Get individual commit data for more detailed statistics
+			let commitData: Commit[] = [];
+			let totalCommitApiCalls = 0; // Track API calls
+			let starsCount = 0;
+			let forksCount = 0;
+
+			// Process repos
+			console.log(
+				`Processing ${userRepos.length} repositories for commit data...`
+			);
+			for (const repo of userRepos) {
+				console.log(`-- Processing repo: ${repo.full_name}`);
+				starsCount += repo.stargazers_count || 0;
+				forksCount += repo.forks_count || 0;
+
+				try {
+					// We need to use the repository owner (which might be an organization)
+					// and the authenticated user's username as the author
+					const repoOwner = repo.owner.login;
+					const repoCommits = await fetchCommitsForRepo(
+						octokit,
+						repoOwner,
+						repo.name,
+						username
+					);
+					totalCommitApiCalls++; // Increment API call counter
+					console.log(
+						`   Fetched ${repoCommits.length} commits from ${repoOwner}/${repo.name}`
+					);
+					commitData = commitData.concat(repoCommits);
+				} catch (error) {
+					console.error(`   Error fetching commits for ${repo.name}:`, error);
 				}
 			}
 
-			// If we can't get a username, let's ask the user directly
-			const username = prompt(
-				'Could not determine your GitHub username. Please enter it manually:',
-				''
+			console.log(
+				`Finished processing repositories. Total commit API calls: ${totalCommitApiCalls}`
 			);
-			if (username) {
-				console.log('Using manually entered username:', username);
-				return fetchRealGitHubStats(octokit, username);
+			console.log(
+				`Total commit objects collected before deduplication: ${commitData.length}`
+			);
+
+			// Create top repos list and ensure commitData is deduplicated by SHA
+			const repoCommitCounts: { [key: string]: number } = {};
+			const commitMap = new Map<string, Commit>();
+
+			commitData.forEach((commit) => {
+				// Deduplicate commits by SHA
+				commitMap.set(commit.sha, commit);
+
+				// Count commits by repo
+				if (commit.repo) {
+					repoCommitCounts[commit.repo] =
+						(repoCommitCounts[commit.repo] || 0) + 1;
+				}
+			});
+
+			// Get deduplicated commits
+			commitData = Array.from(commitMap.values());
+			console.log(
+				`Total commit objects after deduplication: ${commitData.length}`
+			);
+
+			// Sort commits by date (newest first)
+			commitData.sort(
+				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+			);
+
+			const topRepos = Object.entries(repoCommitCounts)
+				.map(([name, commits]) => ({ name, commits }))
+				.sort((a, b) => b.commits - a.commits)
+				.slice(0, 5);
+
+			// Get recent activity (5 most recent commits)
+			const recentActivity = commitData.slice(0, 5);
+
+			// Calculate streaks
+			const streakDays = calculateStreak(commitData);
+
+			// Count recent commits (current calendar month)
+			const now = new Date();
+			const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+			console.log(
+				`Counting commits since the start of the month: ${startOfMonth.toISOString()}`
+			);
+
+			// Count recent commits from direct API for the current month
+			console.log('--- Filtering commits for current month ---');
+			const recentCommitsFromAPI = commitData.filter((commit) => {
+				const commitDate = new Date(commit.date);
+				const isRecent = commitDate >= startOfMonth;
+				// More verbose logging for debugging
+				console.log(
+					`   Commit SHA: ${commit.sha.substring(
+						0,
+						7
+					)}, Date: ${commitDate.toISOString()}, Is Recent: ${isRecent}`
+				);
+				return isRecent;
+			}).length;
+			console.log('--- Finished filtering ---');
+
+			console.log(`Found ${recentCommitsFromAPI} commits in the current month`);
+
+			// Initialize GraphQL counter outside the if block
+			let graphQLRecentContributions = 0;
+
+			// If we have GraphQL data, also print out the contributions by day for comparison
+			if (
+				contributionCalendar?.weeks &&
+				contributionCalendar.weeks.length > 0
+			) {
+				console.log(`GraphQL contribution data by day (current month):`);
+				// Reset counter inside if needed, or just use the outer scope one
+				// graphQLRecentContributions = 0; // Uncomment if you want to reset per function call
+
+				for (const week of contributionCalendar.weeks) {
+					for (const day of week.contributionDays) {
+						const contributionDate = new Date(day.date);
+						if (contributionDate >= startOfMonth) {
+							console.log(
+								`  ${contributionDate.toLocaleDateString()}: ${
+									day.contributionCount
+								} contributions`
+							);
+							if (day.contributionCount > 0) {
+								graphQLRecentContributions += day.contributionCount;
+							}
+						}
+					}
+				}
+
+				console.log(
+					`Total GraphQL contributions in current month: ${graphQLRecentContributions}`
+				);
 			}
 
-			throw new Error(
-				'Could not get GitHub username. Please try logging in again.'
+			// Use the GraphQL contribution count for recent activity as it appears more comprehensive
+			// even though it includes non-commit contributions.
+			const recentCommits =
+				graphQLRecentContributions > 0
+					? graphQLRecentContributions
+					: recentCommitsFromAPI;
+
+			console.log(
+				`Recent commits from API (current month): ${recentCommitsFromAPI}`
 			);
+			console.log(
+				`Total contributions from GraphQL (current month): ${graphQLRecentContributions}`
+			);
+			console.log(
+				`Using final count for 'commits this month': ${recentCommits}`
+			);
+
+			// For the lastCommitDate, we still want to use GraphQL data as it might be more recent
+			let lastCommitDate = new Date().toISOString();
+
+			if (commitData.length > 0) {
+				// We've already sorted, so the first one is the most recent
+				lastCommitDate = commitData[0].date;
+				console.log(
+					`Most recent commit was on: ${new Date(
+						lastCommitDate
+					).toLocaleDateString()}`
+				);
+			}
+
+			// If we have GraphQL data, we can also check if it has more recent information
+			if (
+				contributionCalendar?.weeks &&
+				contributionCalendar.weeks.length > 0
+			) {
+				// Find the most recent contribution day with count > 0
+				for (const week of contributionCalendar.weeks) {
+					for (const day of week.contributionDays) {
+						if (day.contributionCount > 0) {
+							const contributionDate = new Date(day.date);
+							const currentLastCommitDate = new Date(lastCommitDate);
+
+							if (contributionDate > currentLastCommitDate) {
+								lastCommitDate = day.date;
+								console.log(
+									`Found more recent contribution from GraphQL: ${new Date(
+										lastCommitDate
+									).toLocaleDateString()}`
+								);
+							}
+						}
+					}
+				}
+			}
+
+			// Get all repositories with tracking status
+			const trackedRepos = getTrackedRepositories();
+			const excludedRepos = getExcludedRepositories();
+
+			const allRepositories = allRepos.map((repo) => ({
+				name: repo.name,
+				isTracked:
+					trackedRepos.includes(repo.name) ||
+					(!trackedRepos.length && !excludedRepos.includes(repo.name)),
+				isPrivate: repo.private,
+			}));
+
+			return {
+				totalCommits: totalContributions || totalCommitApiCalls,
+				recentCommits,
+				streakDays,
+				lastCommitDate,
+				topRepos,
+				recentActivity,
+				avatar: userData.avatar_url,
+				username: userData.login,
+				fullName: userData.name || userData.login,
+				allRepositories,
+				contributionCalendar,
+			};
+		} catch (userError) {
+			console.error('Error getting authenticated user:', userError);
+			throw userError;
 		}
 	} catch (error) {
 		console.error('Error fetching GitHub stats:', error);
-		throw new Error(
-			'Failed to fetch GitHub data. Please check your authentication and try again.'
-		);
+		return null;
 	}
 };
 
@@ -342,133 +783,5 @@ export const toggleRepositoryTracking = (
 		addTrackedRepository(repoName);
 	} else {
 		addExcludedRepository(repoName);
-	}
-};
-
-// Function to fetch real GitHub stats - Update to consider tracked/excluded repos
-const fetchRealGitHubStats = async (
-	octokit: Octokit,
-	username: string
-): Promise<GitHubStats> => {
-	try {
-		// Get user information for profile data
-		const { data: userData } = await octokit.rest.users.getByUsername({
-			username,
-		});
-
-		// Get user's repositories
-		const { data: repos } = await octokit.rest.repos.listForUser({
-			username,
-			sort: 'updated',
-			per_page: 100,
-			type: 'all', // Include both public and private repos
-		});
-
-		// Get tracked and excluded repos
-		const trackedRepos = getTrackedRepositories();
-		const excludedRepos = getExcludedRepositories();
-
-		// Create list of all repos with tracking status
-		const allRepositories = repos.map((repo) => ({
-			name: repo.name,
-			isTracked:
-				trackedRepos.includes(repo.name) ||
-				(!trackedRepos.length && !excludedRepos.includes(repo.name)),
-			isPrivate: repo.private, // Add private status
-		}));
-
-		// Filter repos based on tracked/excluded
-		let reposToProcess = repos;
-
-		// If we have explicit tracked repos, use only those
-		if (trackedRepos.length > 0) {
-			reposToProcess = repos.filter((repo) => trackedRepos.includes(repo.name));
-		}
-		// Otherwise, exclude the excluded ones
-		else if (excludedRepos.length > 0) {
-			reposToProcess = repos.filter(
-				(repo) => !excludedRepos.includes(repo.name)
-			);
-		}
-
-		// Get recent commits from all repos
-		let allCommits: any[] = [];
-		let topRepos: { name: string; commits: number }[] = [];
-
-		// We'll limit to processing the repos to avoid rate limits
-		const recentRepos = reposToProcess.slice(0, 10);
-
-		for (const repo of recentRepos) {
-			try {
-				// Get commits for this repo
-				const { data: repoCommits } = await octokit.rest.repos.listCommits({
-					owner: repo.owner.login,
-					repo: repo.name,
-					author: username,
-					per_page: 30, // Limit per repo to avoid rate limits
-				});
-
-				allCommits = [...allCommits, ...repoCommits];
-
-				if (repoCommits.length > 0) {
-					topRepos.push({
-						name: repo.name,
-						commits: repoCommits.length,
-					});
-				}
-			} catch (error) {
-				console.error(`Error fetching commits for ${repo.name}:`, error);
-			}
-		}
-
-		// Sort top repos by number of commits
-		topRepos.sort((a, b) => b.commits - a.commits);
-
-		// Limit to top 3 repos
-		topRepos = topRepos.slice(0, 3);
-
-		// Filter recent commits (last 30 days)
-		const thirtyDaysAgo = new Date();
-		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-		const recentCommits = allCommits.filter((commit) => {
-			const commitDate = new Date(commit.commit.author.date);
-			return commitDate > thirtyDaysAgo;
-		});
-
-		// Format recent activity
-		const recentActivity: Commit[] = recentCommits
-			.slice(0, 5)
-			.map((commit) => ({
-				sha: commit.sha,
-				date: commit.commit.author.date,
-				message: commit.commit.message,
-				url: commit.html_url,
-			}));
-
-		// Calculate streak
-		const streakDays = calculateStreak(allCommits);
-
-		// Get last commit date
-		const lastCommitDate =
-			allCommits.length > 0
-				? allCommits[0].commit.author.date
-				: new Date().toISOString();
-
-		return {
-			totalCommits: allCommits.length,
-			recentCommits: recentCommits.length,
-			streakDays,
-			lastCommitDate,
-			topRepos,
-			recentActivity,
-			avatar: userData.avatar_url,
-			username: userData.login,
-			fullName: userData.name || userData.login,
-			allRepositories,
-		};
-	} catch (error) {
-		console.error('Error fetching real GitHub stats:', error);
-		throw error;
 	}
 };

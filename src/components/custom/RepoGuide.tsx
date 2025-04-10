@@ -109,7 +109,7 @@ export const RepoGuide: React.FC<RepoGuideProps> = ({ onToggleSettings }) => {
 							fill='#322b28'
 							className='sign-text'
 						>
-							Psst! You can now
+							Private commits now
 						</text>
 						<text
 							x='80'
@@ -119,7 +119,7 @@ export const RepoGuide: React.FC<RepoGuideProps> = ({ onToggleSettings }) => {
 							fill='#322b28'
 							className='sign-text'
 						>
-							track your private
+							count! ✓ All your work
 						</text>
 						<text
 							x='80'
@@ -129,7 +129,7 @@ export const RepoGuide: React.FC<RepoGuideProps> = ({ onToggleSettings }) => {
 							fill='#322b28'
 							className='sign-text'
 						>
-							repos too!
+							is included!
 						</text>
 					</g>
 				</svg>

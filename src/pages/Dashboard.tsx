@@ -176,10 +176,10 @@ const Dashboard = () => {
 						<div className='flex items-center justify-between mb-4 px-2 font-handwritten'>
 							<span>
 								<Lock className='inline h-4 w-4 mr-1' />
-								Private repos are now included!
+								All GitHub activity now counted!
 							</span>
 							<span className='text-xs text-pencil'>
-								(These will only be visible to you)
+								(Your complete contribution history is included)
 							</span>
 						</div>
 						<div className='grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-2'>
@@ -278,16 +278,22 @@ const Dashboard = () => {
 									<ul className='space-y-2'>
 										<li className='flex items-center'>
 											<GitCommit className='w-5 h-5 mr-2 text-ink-blue' />
-											<span>{stats.totalCommits} lifetime commits</span>
+											<span>{stats.totalCommits} total contributions</span>
 										</li>
 										<li className='flex items-center'>
 											<Clock className='w-5 h-5 mr-2 text-ink-blue' />
 											<span>{stats.recentCommits} commits this month</span>
 										</li>
+										<li className='flex items-center'>
+											<Lock className='w-5 h-5 mr-2 text-ink-blue' />
+											<span className='text-sm'>
+												Complete GitHub activity included!
+											</span>
+										</li>
 									</ul>
 								</div>
 								<div className='text-6xl font-handwritten text-ink-blue'>
-									{stats.recentCommits}
+									{stats.totalCommits}
 								</div>
 							</div>
 						</HandDrawnCard>
