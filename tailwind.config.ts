@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -61,6 +62,21 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				paper: {
+					light: '#F5E7D3',
+					DEFAULT: '#EED9C4',
+					dark: '#D4BE9C'
+				},
+				pencil: {
+					light: '#8E9196',
+					DEFAULT: '#5D6166',
+					dark: '#1A1F2C'
+				},
+				ink: {
+					blue: '#3B6EA5',
+					red: '#D13438',
+					green: '#107C41'
 				}
 			},
 			borderRadius: {
@@ -84,11 +100,22 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'wobble': {
+					'0%, 100%': { transform: 'rotate(-3deg)' },
+					'50%': { transform: 'rotate(3deg)' },
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'wobble': 'wobble 1s ease-in-out infinite',
+			},
+			fontFamily: {
+				'handwritten': ['Patrick Hand', 'Comic Sans MS', 'cursive'],
+			},
+			backgroundImage: {
+				'paper-texture': "url('/paper-texture.png')",
 			}
 		}
 	},
