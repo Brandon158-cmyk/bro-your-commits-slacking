@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Github } from 'lucide-react';
+import { Github, BookOpen } from 'lucide-react';
 import { HandDrawnButton } from '@/components/custom/hand-drawn-button';
 import { HandDrawnCard } from '@/components/custom/hand-drawn-card';
 import { useGitHub } from '@/contexts/GitHubContext';
@@ -54,6 +54,15 @@ const Index = () => {
 						Get a reality check on your coding habits with some friendly banter!
 						No judgment, just motivation to keep pushing! 💪
 					</p>
+					<HandDrawnButton
+						variant='outline'
+						size='sm'
+						onClick={() => navigate('/rulebook')}
+						className='mt-4 flex items-center gap-2 mx-auto'
+					>
+						<BookOpen className='h-4 w-4' />
+						View Rule Book
+					</HandDrawnButton>
 				</HandDrawnCard>
 			</div>
 		</div>
