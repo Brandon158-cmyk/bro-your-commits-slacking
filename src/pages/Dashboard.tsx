@@ -81,13 +81,19 @@ const Dashboard = () => {
 	const getSlackingMessage = () => {
 		if (!stats) return 'Loading your stats...';
 
-		const { recentCommits, streakDays } = stats;
+		// Use commitsToday and DAILY_GOAL instead of recentCommits
+		const { commitsToday = 0 } = stats; // Default to 0 if undefined
+		const goal = DAILY_GOAL; // Use the constant defined in the component
+		const bonusGoal = goal * 2;
 
-		if (recentCommits < 5) return "Yo, your GitHub's collecting dust, bro! 🧹";
-		if (recentCommits < 10) return 'Getting lazy with the commits lately? 😏';
-		if (recentCommits < 20)
-			return 'Not bad, but your ops are still coding more! 👀';
-		return "You're on fire! Keep that commit streak alive! 🔥";
+		if (commitsToday === 0)
+			return 'Zero commits today? Ops are deploying circles around you! 😴';
+		if (commitsToday < goal)
+			return "Still haven't hit the daily goal! Chop chop! 🏃‍♂️";
+		if (commitsToday === goal)
+			return 'Daily goal met! Just scraping by, eh? 😉';
+		if (commitsToday < bonusGoal) return 'Goal smashed! Nice work! 🔥';
+		return 'Bonus goal achieved! True commit warrior! ⚔️';
 	};
 
 	const getStreakMessage = () => {

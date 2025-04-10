@@ -14,6 +14,7 @@ const CommitMeter = ({ value, maxValue, className }: CommitMeterProps) => {
 
 	console.log('value', value);
 	console.log('maxValue', maxValue);
+	console.log('percentage', percentage);
 
 	React.useEffect(() => {
 		const timeout = setTimeout(() => setProgress(percentage), 500);
