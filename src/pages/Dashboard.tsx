@@ -287,11 +287,21 @@ const Dashboard = () => {
 											<Clock className='w-5 h-5 mr-2 text-ink-blue' />
 											<span>{stats.recentCommits} commits this month</span>
 										</li>
-										<li className='flex items-center'>
-											<Lock className='w-5 h-5 mr-2 text-ink-blue' />
-											<span className='text-sm'>
-												Complete GitHub activity included!
-											</span>
+										<li className='mt-4'>
+											<div className='text-sm mb-1 font-medium'>
+												Today's Goal: {stats.commitsToday || 0} / 3
+											</div>
+											<div className='w-full bg-pencil-light rounded-full h-2.5'>
+												<div
+													className='bg-ink-blue h-2.5 rounded-full'
+													style={{
+														width: `${Math.min(
+															100,
+															((stats.commitsToday || 0) / 3) * 100
+														)}%`,
+													}}
+												></div>
+											</div>
 										</li>
 									</ul>
 								</div>
@@ -307,8 +317,14 @@ const Dashboard = () => {
 									<h3 className='text-xl font-handwritten mb-2'>Streak</h3>
 									<p>{getStreakMessage()}</p>
 								</div>
-								<div className='text-6xl font-handwritten text-ink-red'>
-									{stats.streakDays}
+								<div className='flex flex-col items-end'>
+									<div className='text-6xl font-handwritten text-ink-red'>
+										{stats.streakDays}
+									</div>
+									<div className='flex items-center text-sm mt-1'>
+										<span className='mr-1 text-red-500'>❤️</span>
+										<span>{stats.lives ?? '-'} Lives</span>
+									</div>
 								</div>
 							</div>
 							<div className='flex items-center mt-4'>

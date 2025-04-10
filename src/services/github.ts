@@ -88,6 +88,8 @@ export type GitHubStats = {
 	};
 	totalTrackedCommits?: number;
 	commitsThisWeek?: number;
+	lives?: number;
+	commitsToday?: number;
 };
 
 // Define a type for the expected PushEvent payload structure
@@ -253,40 +255,132 @@ export const checkAuth = async (): Promise<string | null> => {
 // Function to logout user
 export const logout = async () => {
 	localStorage.removeItem('github_token');
+	localStorage.removeItem('user_lives');
+	localStorage.removeItem('last_processed_date');
 	await supabase.auth.signOut();
 };
 
-// Function to calculate commit streaks
-const calculateStreak = (commits: Commit[]): number => {
-	if (!commits.length) return 0;
+// --- NEW HELPER FUNCTIONS ---
 
-	// Sort commits by date (newest first)
-	const sortedDates = commits
-		.map((commit) => new Date(commit.date))
-		.sort((a, b) => b.getTime() - a.getTime());
+const getDateString = (date: Date): string => {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+};
 
-	// Calculate current streak
-	let streakDays = 1;
-	let currentDate = new Date(sortedDates[0]);
-	currentDate.setHours(0, 0, 0, 0);
+const STARTING_LIVES = 3;
+const MAX_LIVES = 5; // Cap lives
 
-	for (let i = 1; i < sortedDates.length; i++) {
-		const prevDate = new Date(sortedDates[i]);
-		prevDate.setHours(0, 0, 0, 0);
+const getUserLives = (): number => {
+	const livesStr = localStorage.getItem('user_lives');
+	return livesStr === null ? STARTING_LIVES : parseInt(livesStr, 10);
+};
 
-		// Check if dates are consecutive
-		const diffTime = currentDate.getTime() - prevDate.getTime();
-		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+const setUserLives = (lives: number): void => {
+	const clampedLives = Math.max(0, Math.min(lives, MAX_LIVES));
+	localStorage.setItem('user_lives', clampedLives.toString());
+};
 
-		if (diffDays === 1) {
-			streakDays++;
-			currentDate = prevDate;
-		} else if (diffDays > 1) {
-			break;
+const getLastProcessedDate = (): string | null => {
+	return localStorage.getItem('last_processed_date');
+};
+
+const setLastProcessedDate = (dateStr: string): void => {
+	localStorage.setItem('last_processed_date', dateStr);
+};
+
+// --- REVISED STREAK AND LIVES CALCULATION ---
+
+const calculateStreakAndLives = (
+	trackedCommits: Commit[]
+): { streakDays: number; lives: number } => {
+	const DAILY_GOAL = 3;
+	const BONUS_GOAL = DAILY_GOAL * 2; // 6 commits
+
+	// 1. Get current state
+	let currentLives = getUserLives(); // Gets starting lives if null
+	const lastProcessedDateStr = getLastProcessedDate();
+
+	// 2. Group commits by date
+	const commitsByDate: Record<string, number> = {};
+	trackedCommits.forEach((commit) => {
+		const dateStr = getDateString(new Date(commit.date));
+		commitsByDate[dateStr] = (commitsByDate[dateStr] || 0) + 1;
+	});
+
+	// 3. Get relevant dates
+	const today = new Date();
+	const todayStr = getDateString(today);
+	const yesterday = new Date(today);
+	yesterday.setDate(today.getDate() - 1);
+	const yesterdayStr = getDateString(yesterday);
+
+	// 4. Update Lives based on *yesterday's* performance if it's a new day
+	let livesChanged = false;
+	if (lastProcessedDateStr !== todayStr) {
+		console.log(
+			`Processing lives check. Today: ${todayStr}, Last Processed: ${lastProcessedDateStr}`
+		);
+		const commitsYesterday = commitsByDate[yesterdayStr] || 0;
+
+		if (!lastProcessedDateStr || lastProcessedDateStr < todayStr) {
+			// Process if first time or new day
+			if (commitsYesterday < DAILY_GOAL) {
+				console.log(
+					`Missed goal yesterday (${commitsYesterday}/${DAILY_GOAL}). Losing a life.`
+				);
+				currentLives--;
+				livesChanged = true;
+			} else if (commitsYesterday >= BONUS_GOAL) {
+				console.log(
+					`Bonus goal met yesterday (${commitsYesterday}/${BONUS_GOAL}). Gaining a life.`
+				);
+				if (currentLives < MAX_LIVES) {
+					currentLives++;
+					livesChanged = true;
+				} else {
+					console.log('Already at max lives.');
+				}
+			}
+		}
+
+		if (livesChanged) {
+			console.log(`Lives updated to: ${currentLives}`);
+			setUserLives(currentLives);
+		}
+		setLastProcessedDate(todayStr); // Always update last processed date
+	} else {
+		console.log('Lives already processed for today.');
+	}
+
+	// 5. Calculate Streak (consecutive days >= DAILY_GOAL ending *yesterday* or *today*)
+	let currentStreak = 0;
+	let checkDate = new Date(today); // Start checking from today backwards
+
+	while (true) {
+		const checkDateStr = getDateString(checkDate);
+		const commitCount = commitsByDate[checkDateStr] || 0;
+
+		if (commitCount >= DAILY_GOAL) {
+			currentStreak++;
+			checkDate.setDate(checkDate.getDate() - 1); // Move to previous day
+		} else {
+			break; // Streak broken
 		}
 	}
 
-	return streakDays;
+	let finalLives = Math.max(0, Math.min(currentLives, MAX_LIVES));
+
+	if (currentLives <= 0) {
+		console.log('Lives at or below 0. Resetting displayed streak count to 0.');
+		currentStreak = 0;
+	}
+
+	console.log(
+		`Final calculation: Streak=${currentStreak}, Lives=${finalLives}`
+	);
+	return { streakDays: currentStreak, lives: finalLives };
 };
 
 // Function to fetch all repositories for the authenticated user (including private/orgs)
@@ -900,7 +994,7 @@ export const fetchGitHubStats = async (
 
 			// Total commits (now means tracked commits)
 			const totalCommits = trackedCommitData.length;
-			const detailedCommits = trackedCommitData.length; // Align this too
+			const detailedCommits = trackedCommitData.length;
 
 			// Top Repos based on tracked commits
 			const trackedRepoCommitCounts: { [key: string]: number } = {};
@@ -965,10 +1059,10 @@ export const fetchGitHubStats = async (
 			}
 			const finalRecentActivity = uniqueActivity.slice(0, 6);
 
-			// Calculate Streak based on *tracked* commits
-			const streakDays = calculateStreak(trackedCommitData);
+			// Calculate Streak and Lives based on tracked commits
+			const { streakDays, lives } = calculateStreakAndLives(trackedCommitData);
 
-			// Calculate Commits This Month based on *tracked* commits
+			// Calculate Commits This Month based on tracked commits
 			const now = new Date();
 			const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 			console.log(
@@ -982,7 +1076,7 @@ export const fetchGitHubStats = async (
 				`Found ${recentCommits} tracked commits in the current month`
 			);
 
-			// Calculate Commits This Week based on *tracked* commits
+			// Calculate Commits This Week based on tracked commits
 			const dayOfWeek = now.getDay(); // 0 = Sunday
 			const startOfWeek = new Date(now);
 			startOfWeek.setDate(now.getDate() - dayOfWeek);
@@ -998,7 +1092,7 @@ export const fetchGitHubStats = async (
 				`Found ${commitsThisWeek} commits this week in tracked repos`
 			);
 
-			// Last Commit Date based on *tracked* commits
+			// Last Commit Date based on tracked commits
 			let lastCommitDate = new Date().toISOString(); // Default fallback
 			if (trackedCommitData.length > 0) {
 				lastCommitDate = trackedCommitData[0].date; // Use most recent tracked commit
@@ -1015,24 +1109,25 @@ export const fetchGitHubStats = async (
 
 			return {
 				// Core stats now based on tracked repos
-				totalCommits, // Count from tracked repos
-				recentCommits, // Count this month from tracked repos
-				streakDays, // Streak from tracked repos
-				lastCommitDate, // Date from tracked repos
-				topRepos, // Top repos from tracked repos
-				detailedCommits, // Count from tracked repos (same as totalCommits)
-				commitsThisWeek, // Count this week from tracked repos
+				totalCommits,
+				recentCommits,
+				streakDays,
+				lastCommitDate,
+				topRepos,
+				detailedCommits,
+				commitsThisWeek,
+				lives,
 
 				// Other info
-				recentActivity: finalRecentActivity, // Combined feed (includes tracked commits)
+				recentActivity: finalRecentActivity,
 				avatar: userData.avatar_url,
 				username: userData.login,
 				fullName: userData.name || userData.login,
-				allRepositories: allRepositoriesForUI, // List for UI tracking toggles
-				contributionCalendar, // Still the overall GraphQL calendar
-				commitData, // Keep original full commit list for potential other uses
-				stars: starsCount, // Still overall stars
-				forks: forksCount, // Still overall forks
+				allRepositories: allRepositoriesForUI,
+				contributionCalendar,
+				commitData,
+				stars: starsCount,
+				forks: forksCount,
 				profileInfo: {
 					name: userData.name || userData.login,
 					avatar: userData.avatar_url,
@@ -1043,7 +1138,16 @@ export const fetchGitHubStats = async (
 				},
 			};
 		} catch (userError) {
-			console.error('Error getting authenticated user:', userError);
+			console.error(
+				'Error getting authenticated user or processing stats:',
+				userError
+			);
+			if (userError instanceof Error) {
+				if ((userError as any).status === 401) {
+					console.error('GitHub token might be invalid or expired.');
+					localStorage.removeItem('github_token');
+				}
+			}
 			throw userError;
 		}
 	} catch (error) {
