@@ -20,6 +20,7 @@ export type GitHubStats = {
 	avatar?: string; // Add avatar URL
 	username?: string; // Add GitHub username
 	fullName?: string; // Add full name if available
+	allRepositories?: { name: string; isTracked: boolean }[]; // Add all repos with tracking status
 };
 
 // Function to handle GitHub OAuth login via Supabase
@@ -280,7 +281,72 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 	}
 };
 
-// Function to fetch real GitHub stats
+// Get the list of repositories to track/not track
+export const getTrackedRepositories = (): string[] => {
+	const trackedRepos = localStorage.getItem('github_tracked_repos');
+	return trackedRepos ? JSON.parse(trackedRepos) : [];
+};
+
+// Get the list of repositories to explicitly exclude
+export const getExcludedRepositories = (): string[] => {
+	const excludedRepos = localStorage.getItem('github_excluded_repos');
+	return excludedRepos ? JSON.parse(excludedRepos) : [];
+};
+
+// Add a repository to track
+export const addTrackedRepository = (repoName: string): void => {
+	const trackedRepos = getTrackedRepositories();
+	if (!trackedRepos.includes(repoName)) {
+		trackedRepos.push(repoName);
+		localStorage.setItem('github_tracked_repos', JSON.stringify(trackedRepos));
+	}
+
+	// Also remove from excluded if it's there
+	removeExcludedRepository(repoName);
+};
+
+// Remove a repository from tracked list
+export const removeTrackedRepository = (repoName: string): void => {
+	const trackedRepos = getTrackedRepositories();
+	const updatedRepos = trackedRepos.filter((repo) => repo !== repoName);
+	localStorage.setItem('github_tracked_repos', JSON.stringify(updatedRepos));
+};
+
+// Add a repository to excluded list
+export const addExcludedRepository = (repoName: string): void => {
+	const excludedRepos = getExcludedRepositories();
+	if (!excludedRepos.includes(repoName)) {
+		excludedRepos.push(repoName);
+		localStorage.setItem(
+			'github_excluded_repos',
+			JSON.stringify(excludedRepos)
+		);
+	}
+
+	// Also remove from tracked if it's there
+	removeTrackedRepository(repoName);
+};
+
+// Remove a repository from excluded list
+export const removeExcludedRepository = (repoName: string): void => {
+	const excludedRepos = getExcludedRepositories();
+	const updatedRepos = excludedRepos.filter((repo) => repo !== repoName);
+	localStorage.setItem('github_excluded_repos', JSON.stringify(updatedRepos));
+};
+
+// Toggle repository tracking status
+export const toggleRepositoryTracking = (
+	repoName: string,
+	isTracked: boolean
+): void => {
+	if (isTracked) {
+		addTrackedRepository(repoName);
+	} else {
+		addExcludedRepository(repoName);
+	}
+};
+
+// Function to fetch real GitHub stats - Update to consider tracked/excluded repos
 const fetchRealGitHubStats = async (
 	octokit: Octokit,
 	username: string
@@ -298,12 +364,38 @@ const fetchRealGitHubStats = async (
 			per_page: 100,
 		});
 
+		// Get tracked and excluded repos
+		const trackedRepos = getTrackedRepositories();
+		const excludedRepos = getExcludedRepositories();
+
+		// Create list of all repos with tracking status
+		const allRepositories = repos.map((repo) => ({
+			name: repo.name,
+			isTracked:
+				trackedRepos.includes(repo.name) ||
+				(!trackedRepos.length && !excludedRepos.includes(repo.name)),
+		}));
+
+		// Filter repos based on tracked/excluded
+		let reposToProcess = repos;
+
+		// If we have explicit tracked repos, use only those
+		if (trackedRepos.length > 0) {
+			reposToProcess = repos.filter((repo) => trackedRepos.includes(repo.name));
+		}
+		// Otherwise, exclude the excluded ones
+		else if (excludedRepos.length > 0) {
+			reposToProcess = repos.filter(
+				(repo) => !excludedRepos.includes(repo.name)
+			);
+		}
+
 		// Get recent commits from all repos
 		let allCommits: any[] = [];
 		let topRepos: { name: string; commits: number }[] = [];
 
-		// We'll limit to processing 5 most recently updated repos to avoid rate limits
-		const recentRepos = repos.slice(0, 10);
+		// We'll limit to processing the repos to avoid rate limits
+		const recentRepos = reposToProcess.slice(0, 10);
 
 		for (const repo of recentRepos) {
 			try {
@@ -372,6 +464,7 @@ const fetchRealGitHubStats = async (
 			avatar: userData.avatar_url,
 			username: userData.login,
 			fullName: userData.name || userData.login,
+			allRepositories,
 		};
 	} catch (error) {
 		console.error('Error fetching real GitHub stats:', error);

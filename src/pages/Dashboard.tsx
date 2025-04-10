@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
 	Calendar,
@@ -8,6 +8,11 @@ import {
 	RefreshCw,
 	LogOut,
 	User,
+	Settings,
+	Check,
+	X,
+	ChevronDown,
+	ChevronUp,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { HandDrawnButton } from '@/components/custom/hand-drawn-button';
@@ -17,12 +22,13 @@ import { useGitHub } from '@/contexts/GitHubContext';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
+import { toggleRepositoryTracking } from '@/services/github';
 
 const Dashboard = () => {
 	const navigate = useNavigate();
 	const { isAuthenticated, isLoading, stats, error, logout, refresh } =
 		useGitHub();
+	const [showRepoSettings, setShowRepoSettings] = useState(false);
 
 	React.useEffect(() => {
 		if (!isAuthenticated) {
@@ -44,6 +50,15 @@ const Dashboard = () => {
 		} catch (error) {
 			console.error('Error logging out:', error);
 		}
+	};
+
+	const handleToggleRepository = (repoName: string, isTracked: boolean) => {
+		toggleRepositoryTracking(repoName, isTracked);
+		handleRefresh();
+	};
+
+	const toggleRepoSettings = () => {
+		setShowRepoSettings(!showRepoSettings);
 	};
 
 	if (!isAuthenticated) {
@@ -101,6 +116,14 @@ const Dashboard = () => {
 					<div className='flex gap-2'>
 						<HandDrawnButton
 							variant='outline'
+							onClick={toggleRepoSettings}
+							className='flex items-center gap-2'
+						>
+							<Settings className='h-4 w-4' />
+							Settings
+						</HandDrawnButton>
+						<HandDrawnButton
+							variant='outline'
 							onClick={handleRefresh}
 							disabled={isLoading}
 							className='flex items-center gap-2'
@@ -119,6 +142,63 @@ const Dashboard = () => {
 						</HandDrawnButton>
 					</div>
 				</div>
+
+				{/* Repository Management Section */}
+				{showRepoSettings && stats?.allRepositories && (
+					<HandDrawnCard className='mb-6'>
+						<div className='flex justify-between items-center mb-4'>
+							<h3 className='text-xl font-handwritten'>Repository Settings</h3>
+							<HandDrawnButton
+								variant='ghost'
+								size='sm'
+								onClick={toggleRepoSettings}
+								className='text-pencil'
+							>
+								<X className='h-4 w-4' />
+							</HandDrawnButton>
+						</div>
+						<p className='text-sm text-pencil mb-4'>
+							Select which repositories to include in your stats:
+						</p>
+						<div className='grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-2'>
+							{stats.allRepositories.map((repo) => (
+								<div
+									key={repo.name}
+									className='flex items-center justify-between border border-pencil-light rounded-lg p-2'
+								>
+									<span className='truncate mr-2'>{repo.name}</span>
+									<HandDrawnButton
+										variant={repo.isTracked ? 'default' : 'outline'}
+										size='sm'
+										onClick={() =>
+											handleToggleRepository(repo.name, !repo.isTracked)
+										}
+										className={repo.isTracked ? 'bg-ink-blue text-white' : ''}
+									>
+										{repo.isTracked ? (
+											<>
+												<Check className='h-4 w-4 mr-1' /> Tracking
+											</>
+										) : (
+											<>
+												<X className='h-4 w-4 mr-1' /> Not Tracking
+											</>
+										)}
+									</HandDrawnButton>
+								</div>
+							))}
+						</div>
+						<div className='flex justify-end mt-4'>
+							<HandDrawnButton
+								onClick={handleRefresh}
+								className='flex items-center gap-2'
+							>
+								<RefreshCw className='h-4 w-4' />
+								Apply & Refresh
+							</HandDrawnButton>
+						</div>
+					</HandDrawnCard>
+				)}
 
 				{isLoading ? (
 					<div className='space-y-6'>
@@ -205,31 +285,58 @@ const Dashboard = () => {
 						</HandDrawnCard>
 
 						<HandDrawnCard className='md:col-span-2'>
-							<h3 className='text-xl font-handwritten mb-4'>Recent Activity</h3>
+							<div className='flex justify-between items-center mb-4'>
+								<h3 className='text-xl font-handwritten'>Recent Activity</h3>
+								{stats.allRepositories && (
+									<HandDrawnButton
+										variant='ghost'
+										size='sm'
+										onClick={toggleRepoSettings}
+										className='text-pencil flex items-center'
+									>
+										<Settings className='h-4 w-4 mr-1' />
+										Manage Repos
+									</HandDrawnButton>
+								)}
+							</div>
 							<div className='space-y-4'>
-								{stats.recentActivity.map((commit: any, index: number) => (
-									<div key={commit.sha} className='group'>
-										{index > 0 && (
-											<Separator className='my-4 border-pencil-light' />
-										)}
-										<div className='flex justify-between items-start'>
-											<div>
-												<p className='font-medium'>{commit.message}</p>
-												<p className='text-sm text-pencil'>
-													{format(new Date(commit.date), 'MMM d, h:mm a')}
-												</p>
+								{stats.recentActivity.length > 0 ? (
+									stats.recentActivity.map((commit: any, index: number) => (
+										<div key={commit.sha} className='group'>
+											{index > 0 && (
+												<Separator className='my-4 border-pencil-light' />
+											)}
+											<div className='flex justify-between items-start'>
+												<div>
+													<p className='font-medium'>{commit.message}</p>
+													<p className='text-sm text-pencil'>
+														{format(new Date(commit.date), 'MMM d, h:mm a')}
+													</p>
+												</div>
+												<a
+													href={commit.url}
+													target='_blank'
+													rel='noopener noreferrer'
+													className='text-ink-blue hover:underline flex items-center group-hover:opacity-100 opacity-0 transition-opacity'
+												>
+													View <ArrowUpRight className='w-4 h-4 ml-1' />
+												</a>
 											</div>
-											<a
-												href={commit.url}
-												target='_blank'
-												rel='noopener noreferrer'
-												className='text-ink-blue hover:underline flex items-center group-hover:opacity-100 opacity-0 transition-opacity'
-											>
-												View <ArrowUpRight className='w-4 h-4 ml-1' />
-											</a>
 										</div>
-									</div>
-								))}
+									))
+								) : (
+									<p className='text-center text-pencil italic'>
+										No recent activity in the tracked repositories.
+										<HandDrawnButton
+											variant='link'
+											size='sm'
+											onClick={toggleRepoSettings}
+											className='ml-2'
+										>
+											Add repositories
+										</HandDrawnButton>
+									</p>
+								)}
 							</div>
 						</HandDrawnCard>
 
