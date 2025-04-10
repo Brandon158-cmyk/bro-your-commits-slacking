@@ -1,3 +1,4 @@
+
 import { Octokit } from 'octokit';
 
 // This service handles GitHub API interactions using Octokit
@@ -20,11 +21,12 @@ export type GitHubStats = {
 
 // GitHub OAuth configuration
 const CLIENT_ID = 'Iv23liQroThNOvKnNBzj'; // Replace with your GitHub OAuth App client ID
-const REDIRECT_URI = 'http://localhost:8080/';
+const REDIRECT_URI = window.location.origin + '/'; // Use the application's origin as the base URL
 const GITHUB_AUTH_URL = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=repo,user`;
 
 // Function to handle GitHub OAuth login
 export const loginWithGitHub = () => {
+	console.log("Initiating GitHub login with redirect URI:", REDIRECT_URI);
 	// Redirect to GitHub for authentication
 	window.location.href = GITHUB_AUTH_URL;
 };
