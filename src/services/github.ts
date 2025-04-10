@@ -290,8 +290,6 @@ const setLastProcessedDate = (dateStr: string): void => {
 	localStorage.setItem('last_processed_date', dateStr);
 };
 
-// --- REVISED STREAK AND LIVES CALCULATION ---
-
 const calculateStreakAndLives = (
 	trackedCommits: Commit[]
 ): { streakDays: number; lives: number; commitsToday: number } => {

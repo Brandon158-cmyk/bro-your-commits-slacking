@@ -37,6 +37,8 @@ const Dashboard = () => {
 	const [showRepoSettings, setShowRepoSettings] = useState(false);
 	const [showGuide, setShowGuide] = useState(true);
 
+	const DAILY_GOAL = 3; // Define daily goal constant
+
 	React.useEffect(() => {
 		if (!isAuthenticated) {
 			navigate('/');
@@ -289,7 +291,7 @@ const Dashboard = () => {
 										</li>
 										<li className='mt-4'>
 											<div className='text-sm mb-1 font-medium'>
-												Today's Goal: {stats.commitsToday || 0} / 3
+												Today's Goal: {stats.commitsToday || 0} / {DAILY_GOAL}
 											</div>
 											<div className='w-full bg-pencil-light rounded-full h-2.5'>
 												<div
@@ -297,7 +299,7 @@ const Dashboard = () => {
 													style={{
 														width: `${Math.min(
 															100,
-															((stats.commitsToday || 0) / 3) * 100
+															((stats.commitsToday || 0) / DAILY_GOAL) * 100
 														)}%`,
 													}}
 												></div>
