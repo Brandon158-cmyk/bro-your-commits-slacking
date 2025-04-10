@@ -24,7 +24,10 @@ import { useGitHub } from '@/contexts/GitHubContext';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { toggleRepositoryTracking } from '@/services/github';
+import {
+	toggleRepositoryTracking,
+	type ActivityEvent,
+} from '@/services/github';
 import { RepoGuide } from '@/components/custom/RepoGuide';
 
 const Dashboard = () => {
@@ -334,29 +337,33 @@ const Dashboard = () => {
 							</div>
 							<div className='space-y-4'>
 								{stats.recentActivity.length > 0 ? (
-									stats.recentActivity.map((commit: any, index: number) => (
-										<div key={commit.sha} className='group'>
-											{index > 0 && (
-												<Separator className='my-4 border-pencil-light' />
-											)}
-											<div className='flex justify-between items-start'>
-												<div>
-													<p className='font-medium'>{commit.message}</p>
-													<p className='text-sm text-pencil'>
-														{format(new Date(commit.date), 'MMM d, h:mm a')}
-													</p>
+									stats.recentActivity.map(
+										(activity: ActivityEvent, index: number) => (
+											<div key={index} className='group'>
+												{index > 0 && (
+													<Separator className='my-4 border-pencil-light' />
+												)}
+												<div className='flex justify-between items-start'>
+													<div>
+														<p className='font-medium'>{activity.summary}</p>
+														<p className='text-sm text-pencil'>
+															{format(new Date(activity.date), 'MMM d, h:mm a')}
+														</p>
+													</div>
+													{activity.url && (
+														<a
+															href={activity.url}
+															target='_blank'
+															rel='noopener noreferrer'
+															className='text-ink-blue hover:underline flex items-center group-hover:opacity-100 opacity-0 transition-opacity'
+														>
+															View <ArrowUpRight className='w-4 h-4 ml-1' />
+														</a>
+													)}
 												</div>
-												<a
-													href={commit.url}
-													target='_blank'
-													rel='noopener noreferrer'
-													className='text-ink-blue hover:underline flex items-center group-hover:opacity-100 opacity-0 transition-opacity'
-												>
-													View <ArrowUpRight className='w-4 h-4 ml-1' />
-												</a>
 											</div>
-										</div>
-									))
+										)
+									)
 								) : (
 									<p className='text-center text-pencil italic'>
 										No recent activity in the tracked repositories.

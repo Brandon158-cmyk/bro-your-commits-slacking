@@ -40,6 +40,13 @@ export type ActivityEvent = {
 	summary: string; // A short description of the event
 	url?: string; // Link to the commit, PR, issue, etc.
 	repoName?: string; // Name of the repository
+	details?: {
+		branch?: string;
+		commitCount?: number;
+		action?: string; // 'opened', 'closed', 'merged', etc.
+		number?: number; // PR or issue number
+		title?: string; // PR or issue title
+	};
 };
 
 export type Commit = {
@@ -499,6 +506,7 @@ export const fetchUserEvents = async (
 			let url: string | undefined;
 			const repoName = event.repo.name;
 			const date = event.created_at || new Date().toISOString();
+			let details: ActivityEvent['details'] = {};
 
 			switch (event.type) {
 				case 'PushEvent': {
@@ -507,14 +515,19 @@ export const fetchUserEvents = async (
 					const branch = ref?.startsWith('refs/heads/')
 						? ref.substring(11)
 						: ref;
+					
+					details.branch = branch;
 
 					if (pushPayload.commits && pushPayload.commits.length > 0) {
+						const commitCount = pushPayload.commits.length;
+						details.commitCount = commitCount;
+						
 						const commit = pushPayload.commits[0]; // Get the first commit of the push
 						const commitMsg = commit.message.split('\n')[0];
 						const shortCommitMsg =
 							commitMsg.substring(0, 50) + (commitMsg.length > 50 ? '...' : '');
 
-						summary = `Pushed "${shortCommitMsg}" to ${repoName}${
+						summary = `Pushed ${commitCount > 1 ? `${commitCount} commits` : '"' + shortCommitMsg + '"'} to ${repoName}${
 							branch ? ':' + branch : ''
 						}`;
 						url = `https://github.com/${repoName}/commit/${commit.sha}`;
@@ -527,56 +540,155 @@ export const fetchUserEvents = async (
 					}
 					break;
 				}
-				case 'PullRequestEvent':
+				case 'PullRequestEvent': {
 					// @ts-ignore
-					summary = `Opened PR #${event.payload.pull_request.number}: ${event.payload.pull_request.title}`;
+					const action = event.payload.action;
+					// @ts-ignore
+					const prNumber = event.payload.pull_request.number;
+					// @ts-ignore
+					const prTitle = event.payload.pull_request.title;
+					
+					details.action = action;
+					details.number = prNumber;
+					details.title = prTitle;
+					
+					let actionVerb = 'Updated';
+					if (action === 'opened') actionVerb = 'Opened';
+					else if (action === 'closed') {
+						// @ts-ignore
+						actionVerb = event.payload.pull_request.merged ? 'Merged' : 'Closed';
+					}
+					
+					summary = `${actionVerb} PR #${prNumber}: ${prTitle}`;
 					// @ts-ignore
 					url = event.payload.pull_request.html_url;
 					break;
-				case 'IssuesEvent':
+				}
+				case 'IssuesEvent': {
 					// @ts-ignore
-					summary = `Opened issue #${event.payload.issue.number}: ${event.payload.issue.title}`;
+					const action = event.payload.action;
+					// @ts-ignore
+					const issueNumber = event.payload.issue.number;
+					// @ts-ignore
+					const issueTitle = event.payload.issue.title;
+					
+					details.action = action;
+					details.number = issueNumber;
+					details.title = issueTitle;
+					
+					let actionVerb = 'Updated';
+					if (action === 'opened') actionVerb = 'Opened';
+					else if (action === 'closed') actionVerb = 'Closed';
+					
+					summary = `${actionVerb} issue #${issueNumber}: ${issueTitle}`;
 					// @ts-ignore
 					url = event.payload.issue.html_url;
 					break;
-				case 'IssueCommentEvent':
+				}
+				case 'IssueCommentEvent': {
 					// @ts-ignore
-					summary = `Commented on issue #${event.payload.issue.number}`;
+					const issueNumber = event.payload.issue.number;
+					// @ts-ignore
+					const isPR = !!event.payload.issue.pull_request;
+					
+					details.number = issueNumber;
+					// @ts-ignore
+					details.title = event.payload.issue.title;
+					
+					summary = `Commented on ${isPR ? 'PR' : 'issue'} #${issueNumber}`;
 					// @ts-ignore
 					url = event.payload.comment.html_url;
 					break;
-				case 'PullRequestReviewEvent':
+				}
+				case 'PullRequestReviewEvent': {
 					// @ts-ignore
-					summary = `Reviewed PR #${event.payload.pull_request.number}`;
+					const prNumber = event.payload.pull_request.number;
+					// @ts-ignore
+					const state = event.payload.review.state;
+					
+					details.number = prNumber;
+					// @ts-ignore
+					details.title = event.payload.pull_request.title;
+					details.action = state;
+					
+					let reviewType = 'Reviewed';
+					if (state === 'approved') reviewType = 'Approved';
+					else if (state === 'changes_requested') reviewType = 'Requested changes on';
+					
+					summary = `${reviewType} PR #${prNumber}`;
 					// @ts-ignore
 					url = event.payload.review.html_url;
 					break;
-				case 'CreateEvent':
+				}
+				case 'CreateEvent': {
 					// @ts-ignore
-					if (event.payload.ref_type === 'repository') {
+					const refType = event.payload.ref_type;
+					// @ts-ignore
+					const ref = event.payload.ref;
+					
+					details.action = 'created';
+					
+					if (refType === 'repository') {
 						summary = `Created repository ${repoName}`;
 						url = `https://github.com/${repoName}`;
-						// @ts-ignore
-					} else if (event.payload.ref_type === 'branch') {
-						// @ts-ignore
-						summary = `Created branch ${event.payload.ref} in ${repoName}`;
+					} else if (refType === 'branch') {
+						details.branch = ref;
+						summary = `Created branch ${ref} in ${repoName}`;
+						url = `https://github.com/${repoName}/tree/${ref}`;
+					} else if (refType === 'tag') {
+						summary = `Created tag ${ref} in ${repoName}`;
+						url = `https://github.com/${repoName}/releases/tag/${ref}`;
 					} else {
 						continue; // Ignore other create events for now
 					}
 					break;
-				case 'ForkEvent':
+				}
+				case 'ForkEvent': {
 					// @ts-ignore
-					summary = `Forked ${repoName} to ${event.payload.forkee.full_name}`;
+					const forkName = event.payload.forkee.full_name;
+					summary = `Forked ${repoName} to ${forkName}`;
 					// @ts-ignore
 					url = event.payload.forkee.html_url;
 					break;
-				// Add more cases as needed (e.g., WatchEvent, GollumEvent)
+				}
+				case 'WatchEvent': {
+					// @ts-ignore
+					if (event.payload.action === 'started') {
+						summary = `Starred ${repoName}`;
+						url = `https://github.com/${repoName}`;
+					} else {
+						continue;
+					}
+					break;
+				}
+				case 'ReleaseEvent': {
+					// @ts-ignore
+					const action = event.payload.action;
+					// @ts-ignore
+					const releaseName = event.payload.release.name || event.payload.release.tag_name;
+					
+					details.action = action;
+					details.title = releaseName;
+					
+					summary = `${action === 'published' ? 'Published' : 'Updated'} release ${releaseName}`;
+					// @ts-ignore
+					url = event.payload.release.html_url;
+					break;
+				}
+				// Add more cases as needed (e.g., GollumEvent for wiki edits)
 				default:
 					// console.log('Unhandled event type:', event.type);
 					continue; // Skip unhandled event types
 			}
 
-			activity.push({ type: event.type, date, summary, url, repoName });
+			activity.push({ 
+				type: event.type, 
+				date, 
+				summary, 
+				url, 
+				repoName,
+				details 
+			});
 		}
 
 		console.log(`Found ${activity.length} relevant activity events`);
