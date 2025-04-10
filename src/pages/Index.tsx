@@ -1,12 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Github, BookOpen } from 'lucide-react';
+import { Github, BookOpen, RefreshCw } from 'lucide-react';
 import { HandDrawnButton } from '@/components/custom/hand-drawn-button';
 import { HandDrawnCard } from '@/components/custom/hand-drawn-card';
 import { useGitHub } from '@/contexts/GitHubContext';
 
 const Index = () => {
-	const { isAuthenticated, login } = useGitHub();
+	const { isAuthenticated, login, isLoading } = useGitHub();
 	const navigate = useNavigate();
 
 	React.useEffect(() => {
@@ -35,9 +35,19 @@ const Index = () => {
 						<HandDrawnButton
 							className='text-xl flex items-center gap-2'
 							onClick={login}
+							disabled={isLoading}
 						>
-							<Github className='w-5 h-5' />
-							Login with GitHub
+							{isLoading ? (
+								<>
+									<RefreshCw className='w-5 h-5 animate-spin' />
+									Logging in...
+								</>
+							) : (
+								<>
+									<Github className='w-5 h-5' />
+									Login with GitHub
+								</>
+							)}
 						</HandDrawnButton>
 					</div>
 				</HandDrawnCard>
