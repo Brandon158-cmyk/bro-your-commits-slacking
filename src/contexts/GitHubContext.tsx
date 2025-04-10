@@ -1,7 +1,7 @@
-
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { checkAuth, loginWithGitHub, logout, fetchGitHubStats } from "../services/github";
+import { checkAuth, loginWithGitHub, logout, fetchGitHubStats, handleAuthCallback } from "../services/github";
 import { useToast } from "@/components/ui/use-toast";
+import { useLocation } from "react-router-dom";
 
 type GitHubContextType = {
   isAuthenticated: boolean;
@@ -20,15 +20,35 @@ export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [githubStats, setGithubStats] = useState<any>(null);
   const { toast } = useToast();
+  const location = useLocation();
 
   useEffect(() => {
-    const storedToken = checkAuth();
-    if (storedToken) {
-      setToken(storedToken);
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
-  }, []);
+    const checkAuthentication = async () => {
+      setIsLoading(true);
+      
+      if (location.search.includes('code=')) {
+        const newToken = await handleAuthCallback();
+        if (newToken) {
+          setToken(newToken);
+          setIsAuthenticated(true);
+          toast({
+            title: "Yo! You're in!",
+            description: "Successfully connected to GitHub! Let's check your commit game!",
+          });
+        }
+      } else {
+        const storedToken = checkAuth();
+        if (storedToken) {
+          setToken(storedToken);
+          setIsAuthenticated(true);
+        }
+      }
+      
+      setIsLoading(false);
+    };
+    
+    checkAuthentication();
+  }, [location.search, toast]);
 
   useEffect(() => {
     if (token) {
@@ -56,13 +76,7 @@ export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const login = () => {
-    const newToken = loginWithGitHub();
-    setToken(newToken);
-    setIsAuthenticated(true);
-    toast({
-      title: "Yo! You're in!",
-      description: "Successfully connected to GitHub! Let's check your commit game!",
-    });
+    loginWithGitHub();
   };
 
   const handleLogout = () => {
