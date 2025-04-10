@@ -287,20 +287,21 @@ const calculateStreak = (commits: Commit[]): number => {
 	return streakDays;
 };
 
-// Function to fetch all repositories for a user
+// Function to fetch all repositories for the authenticated user (including private/orgs)
 export const fetchAllRepos = async (
-	octokit: Octokit,
-	username: string
+	octokit: Octokit
 ): Promise<Repository[]> => {
 	try {
-		console.log(`Fetching repositories for ${username}`);
+		console.log(`Fetching repositories for authenticated user`);
 		const repos: Repository[] = [];
 		let page = 1;
 		let hasMore = true;
 
 		while (hasMore) {
-			const { data } = await octokit.rest.repos.listForUser({
-				username,
+			// Use listForAuthenticatedUser with affiliation for more explicit fetching
+			const { data } = await octokit.rest.repos.listForAuthenticatedUser({
+				// type: 'all', // Using affiliation instead
+				affiliation: 'owner,collaborator,organization_member',
 				per_page: 100,
 				page,
 			});
@@ -310,10 +311,14 @@ export const fetchAllRepos = async (
 			} else {
 				repos.push(...data);
 				page++;
+				// Stop if we received less than per_page, indicating the last page
+				if (data.length < 100) {
+					hasMore = false;
+				}
 			}
 		}
 
-		console.log(`Found ${repos.length} repositories for ${username}`);
+		console.log(`Found ${repos.length} repositories for authenticated user`);
 		return repos;
 	} catch (error) {
 		console.error('Error fetching repositories:', error);
@@ -515,21 +520,23 @@ export const fetchUserEvents = async (
 					const branch = ref?.startsWith('refs/heads/')
 						? ref.substring(11)
 						: ref;
-					
+
 					details.branch = branch;
 
 					if (pushPayload.commits && pushPayload.commits.length > 0) {
 						const commitCount = pushPayload.commits.length;
 						details.commitCount = commitCount;
-						
+
 						const commit = pushPayload.commits[0]; // Get the first commit of the push
 						const commitMsg = commit.message.split('\n')[0];
 						const shortCommitMsg =
 							commitMsg.substring(0, 50) + (commitMsg.length > 50 ? '...' : '');
 
-						summary = `Pushed ${commitCount > 1 ? `${commitCount} commits` : '"' + shortCommitMsg + '"'} to ${repoName}${
-							branch ? ':' + branch : ''
-						}`;
+						summary = `Pushed ${
+							commitCount > 1
+								? `${commitCount} commits`
+								: '"' + shortCommitMsg + '"'
+						} to ${repoName}${branch ? ':' + branch : ''}`;
 						url = `https://github.com/${repoName}/commit/${commit.sha}`;
 					} else if (pushPayload.ref_type === 'branch' && ref) {
 						// Handle case where push event is branch creation without commits
@@ -547,18 +554,20 @@ export const fetchUserEvents = async (
 					const prNumber = event.payload.pull_request.number;
 					// @ts-ignore
 					const prTitle = event.payload.pull_request.title;
-					
+
 					details.action = action;
 					details.number = prNumber;
 					details.title = prTitle;
-					
+
 					let actionVerb = 'Updated';
 					if (action === 'opened') actionVerb = 'Opened';
 					else if (action === 'closed') {
 						// @ts-ignore
-						actionVerb = event.payload.pull_request.merged ? 'Merged' : 'Closed';
+						actionVerb = event.payload.pull_request.merged
+							? 'Merged'
+							: 'Closed';
 					}
-					
+
 					summary = `${actionVerb} PR #${prNumber}: ${prTitle}`;
 					// @ts-ignore
 					url = event.payload.pull_request.html_url;
@@ -571,15 +580,15 @@ export const fetchUserEvents = async (
 					const issueNumber = event.payload.issue.number;
 					// @ts-ignore
 					const issueTitle = event.payload.issue.title;
-					
+
 					details.action = action;
 					details.number = issueNumber;
 					details.title = issueTitle;
-					
+
 					let actionVerb = 'Updated';
 					if (action === 'opened') actionVerb = 'Opened';
 					else if (action === 'closed') actionVerb = 'Closed';
-					
+
 					summary = `${actionVerb} issue #${issueNumber}: ${issueTitle}`;
 					// @ts-ignore
 					url = event.payload.issue.html_url;
@@ -590,11 +599,11 @@ export const fetchUserEvents = async (
 					const issueNumber = event.payload.issue.number;
 					// @ts-ignore
 					const isPR = !!event.payload.issue.pull_request;
-					
+
 					details.number = issueNumber;
 					// @ts-ignore
 					details.title = event.payload.issue.title;
-					
+
 					summary = `Commented on ${isPR ? 'PR' : 'issue'} #${issueNumber}`;
 					// @ts-ignore
 					url = event.payload.comment.html_url;
@@ -605,16 +614,17 @@ export const fetchUserEvents = async (
 					const prNumber = event.payload.pull_request.number;
 					// @ts-ignore
 					const state = event.payload.review.state;
-					
+
 					details.number = prNumber;
 					// @ts-ignore
 					details.title = event.payload.pull_request.title;
 					details.action = state;
-					
+
 					let reviewType = 'Reviewed';
 					if (state === 'approved') reviewType = 'Approved';
-					else if (state === 'changes_requested') reviewType = 'Requested changes on';
-					
+					else if (state === 'changes_requested')
+						reviewType = 'Requested changes on';
+
 					summary = `${reviewType} PR #${prNumber}`;
 					// @ts-ignore
 					url = event.payload.review.html_url;
@@ -625,9 +635,9 @@ export const fetchUserEvents = async (
 					const refType = event.payload.ref_type;
 					// @ts-ignore
 					const ref = event.payload.ref;
-					
+
 					details.action = 'created';
-					
+
 					if (refType === 'repository') {
 						summary = `Created repository ${repoName}`;
 						url = `https://github.com/${repoName}`;
@@ -662,17 +672,29 @@ export const fetchUserEvents = async (
 					break;
 				}
 				case 'ReleaseEvent': {
-					// @ts-ignore
-					const action = event.payload.action;
-					// @ts-ignore
-					const releaseName = event.payload.release.name || event.payload.release.tag_name;
-					
-					details.action = action;
-					details.title = releaseName;
-					
-					summary = `${action === 'published' ? 'Published' : 'Updated'} release ${releaseName}`;
-					// @ts-ignore
-					url = event.payload.release.html_url;
+					// Cast event to any within this block to bypass payload type inference issues
+					const releaseEvent = event as any;
+
+					// Check if payload and release exist before accessing
+					if (releaseEvent.payload && releaseEvent.payload.release) {
+						const action = releaseEvent.payload.action;
+						const release = releaseEvent.payload.release;
+						const releaseName = release.name || release.tag_name;
+
+						details.action = action;
+						details.title = releaseName;
+
+						summary = `${
+							action === 'published' ? 'Published' : 'Updated'
+						} release ${releaseName}`;
+						url = release.html_url;
+					} else {
+						console.warn(
+							'Skipping ReleaseEvent due to missing payload or release property',
+							event
+						);
+						continue;
+					}
 					break;
 				}
 				// Add more cases as needed (e.g., GollumEvent for wiki edits)
@@ -681,13 +703,13 @@ export const fetchUserEvents = async (
 					continue; // Skip unhandled event types
 			}
 
-			activity.push({ 
-				type: event.type, 
-				date, 
-				summary, 
-				url, 
+			activity.push({
+				type: event.type,
+				date,
+				summary,
+				url,
 				repoName,
-				details 
+				details,
 			});
 		}
 
@@ -728,8 +750,8 @@ export const fetchGitHubStats = async (
 
 			const username = userData.login;
 
-			// Get all repositories for this user
-			const allRepos = await fetchAllRepos(octokit, username);
+			// Get all repositories for this user (now fetches private/orgs too)
+			const allRepos = await fetchAllRepos(octokit);
 			const userRepos = allRepos.filter((repo) => !repo.fork);
 
 			// Get contribution calendar data from GraphQL API
