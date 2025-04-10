@@ -316,7 +316,7 @@ const getDateString = (date: Date): string => {
 	return `${year}-${month}-${day}`;
 };
 
-const STARTING_LIVES = 3;
+const STARTING_LIVES = 4;
 const MAX_LIVES = 5; // Cap lives
 
 const getUserLives = (): number => {
