@@ -33,6 +33,15 @@ interface ContributionCalendar {
 	}>;
 }
 
+// Represents a recent activity event from GitHub's Events API
+export type ActivityEvent = {
+	type: string; // e.g., 'PushEvent', 'PullRequestEvent', 'IssuesEvent'
+	date: string;
+	summary: string; // A short description of the event
+	url?: string; // Link to the commit, PR, issue, etc.
+	repoName?: string; // Name of the repository
+};
+
 export type Commit = {
 	sha: string;
 	date: string;
@@ -47,7 +56,7 @@ export type GitHubStats = {
 	streakDays?: number;
 	lastCommitDate?: string;
 	topRepos?: { name: string; commits: number }[];
-	recentActivity?: Commit[];
+	recentActivity?: ActivityEvent[]; // Changed from Commit[] to ActivityEvent[]
 	avatar?: string;
 	username?: string;
 	fullName?: string;
@@ -71,6 +80,19 @@ export type GitHubStats = {
 		following: number;
 	};
 };
+
+// Define a type for the expected PushEvent payload structure
+interface PushEventPayload {
+	ref?: string; // e.g., 'refs/heads/main'
+	commits?: Array<{
+		sha: string;
+		message: string;
+		author: { name?: string; email?: string };
+	}>;
+	// Push events for branch creation might have ref_type
+	ref_type?: string;
+	[key: string]: any; // Allow other properties
+}
 
 // Function to handle GitHub OAuth login via Supabase
 export const loginWithGitHub = async () => {
@@ -454,6 +476,117 @@ export const fetchContributionData = async (
 	}
 };
 
+// Function to fetch user events from GitHub's Events API
+export const fetchUserEvents = async (
+	octokit: Octokit,
+	username: string,
+	count: number = 10 // Fetch last 10 events by default
+): Promise<ActivityEvent[]> => {
+	try {
+		console.log(`Fetching recent activity events for ${username}`);
+		const { data: events } =
+			await octokit.rest.activity.listPublicEventsForUser({
+				username,
+				per_page: count * 2, // Fetch more initially to filter down
+			});
+
+		const activity: ActivityEvent[] = [];
+
+		for (const event of events) {
+			if (activity.length >= count) break; // Stop once we have enough
+
+			let summary = 'Unknown event';
+			let url: string | undefined;
+			const repoName = event.repo.name;
+			const date = event.created_at || new Date().toISOString();
+
+			switch (event.type) {
+				case 'PushEvent': {
+					const pushPayload = event.payload as PushEventPayload;
+					const ref = pushPayload.ref;
+					const branch = ref?.startsWith('refs/heads/')
+						? ref.substring(11)
+						: ref;
+
+					if (pushPayload.commits && pushPayload.commits.length > 0) {
+						const commit = pushPayload.commits[0]; // Get the first commit of the push
+						const commitMsg = commit.message.split('\n')[0];
+						const shortCommitMsg =
+							commitMsg.substring(0, 50) + (commitMsg.length > 50 ? '...' : '');
+
+						summary = `Pushed "${shortCommitMsg}" to ${repoName}${
+							branch ? ':' + branch : ''
+						}`;
+						url = `https://github.com/${repoName}/commit/${commit.sha}`;
+					} else if (pushPayload.ref_type === 'branch' && ref) {
+						// Handle case where push event is branch creation without commits
+						summary = `Created branch ${branch} in ${repoName}`;
+						url = `https://github.com/${repoName}/tree/${branch}`;
+					} else {
+						continue; // Skip other types of push events (e.g., tag pushes)
+					}
+					break;
+				}
+				case 'PullRequestEvent':
+					// @ts-ignore
+					summary = `Opened PR #${event.payload.pull_request.number}: ${event.payload.pull_request.title}`;
+					// @ts-ignore
+					url = event.payload.pull_request.html_url;
+					break;
+				case 'IssuesEvent':
+					// @ts-ignore
+					summary = `Opened issue #${event.payload.issue.number}: ${event.payload.issue.title}`;
+					// @ts-ignore
+					url = event.payload.issue.html_url;
+					break;
+				case 'IssueCommentEvent':
+					// @ts-ignore
+					summary = `Commented on issue #${event.payload.issue.number}`;
+					// @ts-ignore
+					url = event.payload.comment.html_url;
+					break;
+				case 'PullRequestReviewEvent':
+					// @ts-ignore
+					summary = `Reviewed PR #${event.payload.pull_request.number}`;
+					// @ts-ignore
+					url = event.payload.review.html_url;
+					break;
+				case 'CreateEvent':
+					// @ts-ignore
+					if (event.payload.ref_type === 'repository') {
+						summary = `Created repository ${repoName}`;
+						url = `https://github.com/${repoName}`;
+						// @ts-ignore
+					} else if (event.payload.ref_type === 'branch') {
+						// @ts-ignore
+						summary = `Created branch ${event.payload.ref} in ${repoName}`;
+					} else {
+						continue; // Ignore other create events for now
+					}
+					break;
+				case 'ForkEvent':
+					// @ts-ignore
+					summary = `Forked ${repoName} to ${event.payload.forkee.full_name}`;
+					// @ts-ignore
+					url = event.payload.forkee.html_url;
+					break;
+				// Add more cases as needed (e.g., WatchEvent, GollumEvent)
+				default:
+					// console.log('Unhandled event type:', event.type);
+					continue; // Skip unhandled event types
+			}
+
+			activity.push({ type: event.type, date, summary, url, repoName });
+		}
+
+		console.log(`Found ${activity.length} relevant activity events`);
+		return activity;
+	} catch (error) {
+		console.error('Error fetching user activity events:', error);
+		return [];
+	}
+};
+
 // Function to fetch GitHub stats using Octokit
 export const fetchGitHubStats = async (
 	token: string
@@ -567,8 +700,8 @@ export const fetchGitHubStats = async (
 				.sort((a, b) => b.commits - a.commits)
 				.slice(0, 5);
 
-			// Get recent activity (5 most recent commits)
-			const recentActivity = commitData.slice(0, 5);
+			// Fetch recent activity using the Events API
+			const recentActivity = await fetchUserEvents(octokit, username, 5); // Get top 5 recent events
 
 			// Calculate streaks
 			const streakDays = calculateStreak(commitData);
@@ -648,41 +781,36 @@ export const fetchGitHubStats = async (
 				`Using final count for 'commits this month': ${recentCommits}`
 			);
 
-			// For the lastCommitDate, we still want to use GraphQL data as it might be more recent
+			// Get the most recent commit date (still useful)
 			let lastCommitDate = new Date().toISOString();
-
 			if (commitData.length > 0) {
-				// We've already sorted, so the first one is the most recent
 				lastCommitDate = commitData[0].date;
-				console.log(
-					`Most recent commit was on: ${new Date(
-						lastCommitDate
-					).toLocaleDateString()}`
-				);
 			}
-
-			// If we have GraphQL data, we can also check if it has more recent information
+			// Cross-check with GraphQL for potentially more recent contribution date
 			if (
 				contributionCalendar?.weeks &&
 				contributionCalendar.weeks.length > 0
 			) {
-				// Find the most recent contribution day with count > 0
+				let mostRecentGraphQLDate = '';
 				for (const week of contributionCalendar.weeks) {
 					for (const day of week.contributionDays) {
 						if (day.contributionCount > 0) {
-							const contributionDate = new Date(day.date);
-							const currentLastCommitDate = new Date(lastCommitDate);
-
-							if (contributionDate > currentLastCommitDate) {
-								lastCommitDate = day.date;
-								console.log(
-									`Found more recent contribution from GraphQL: ${new Date(
-										lastCommitDate
-									).toLocaleDateString()}`
-								);
+							if (!mostRecentGraphQLDate || day.date > mostRecentGraphQLDate) {
+								mostRecentGraphQLDate = day.date;
 							}
 						}
 					}
+				}
+				if (
+					mostRecentGraphQLDate &&
+					new Date(mostRecentGraphQLDate) > new Date(lastCommitDate)
+				) {
+					lastCommitDate = mostRecentGraphQLDate;
+					console.log(
+						`Using more recent date from GraphQL: ${new Date(
+							lastCommitDate
+						).toLocaleDateString()}`
+					);
 				}
 			}
 
@@ -710,6 +838,19 @@ export const fetchGitHubStats = async (
 				fullName: userData.name || userData.login,
 				allRepositories,
 				contributionCalendar,
+				detailedCommits: commitData.length,
+				commitData,
+				stars: starsCount,
+				forks: forksCount,
+				profileInfo: {
+					name: userData.name || userData.login,
+					avatar: userData.avatar_url,
+					profileUrl: userData.html_url,
+					username: userData.login,
+					followers: userData.followers,
+					following: userData.following,
+				},
+				totalContributions,
 			};
 		} catch (userError) {
 			console.error('Error getting authenticated user:', userError);
