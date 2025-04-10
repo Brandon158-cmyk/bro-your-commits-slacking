@@ -749,7 +749,14 @@ export const fetchGitHubStats = async (
 		);
 
 		// Initialize Octokit with the user's token
-		const octokit = new Octokit({ auth: token });
+		const octokit = new Octokit({
+			auth: token,
+			request: {
+				headers: {
+					'Cache-Control': 'no-cache',
+				},
+			},
+		});
 
 		try {
 			// Test API access
@@ -897,8 +904,8 @@ export const fetchGitHubStats = async (
 				}
 			}
 
-			// Limit to the top 10 unique activities
-			const finalRecentActivity = uniqueActivity.slice(0, 10);
+			// Limit to the top 6 unique activities
+			const finalRecentActivity = uniqueActivity.slice(0, 6);
 
 			// Count recent commits (current calendar month)
 			const now = new Date();
