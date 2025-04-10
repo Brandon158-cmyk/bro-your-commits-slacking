@@ -1,12 +1,13 @@
+
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { checkAuth, loginWithGitHub, logout, fetchGitHubStats, handleAuthCallback } from "../services/github";
+import { checkAuth, loginWithGitHub, logout, fetchGitHubStats, handleAuthCallback, GitHubStats } from "../services/github";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "react-router-dom";
 
 type GitHubContextType = {
   isAuthenticated: boolean;
   isLoading: boolean;
-  githubStats: any;
+  githubStats: GitHubStats | null;
   login: () => void;
   logout: () => void;
   refreshStats: () => Promise<void>;
@@ -18,7 +19,7 @@ export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [githubStats, setGithubStats] = useState<any>(null);
+  const [githubStats, setGithubStats] = useState<GitHubStats | null>(null);
   const { toast } = useToast();
   const location = useLocation();
 
@@ -27,13 +28,24 @@ export const GitHubProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsLoading(true);
       
       if (location.search.includes('code=')) {
-        const newToken = await handleAuthCallback();
-        if (newToken) {
-          setToken(newToken);
-          setIsAuthenticated(true);
+        try {
+          const newToken = await handleAuthCallback();
+          if (newToken) {
+            setToken(newToken);
+            setIsAuthenticated(true);
+            toast({
+              title: "Yo! You're in!",
+              description: "Successfully connected to GitHub! Let's check your commit game!",
+            });
+          } else {
+            throw new Error("Failed to authenticate with GitHub");
+          }
+        } catch (error) {
+          console.error("Authentication error:", error);
           toast({
-            title: "Yo! You're in!",
-            description: "Successfully connected to GitHub! Let's check your commit game!",
+            title: "Authentication Failed",
+            description: "Couldn't connect to GitHub. Please try again.",
+            variant: "destructive",
           });
         }
       } else {
