@@ -353,7 +353,11 @@ const Dashboard = () => {
 								<Calendar className='w-5 h-5 mr-2 text-ink-red' />
 								<span>
 									Last commit:{' '}
-									{format(new Date(stats.lastCommitDate), 'MMM d, yyyy')}
+									{stats?.lastCommitDate === 'The Last Supper'
+										? 'The Last Supper'
+										: stats?.lastCommitDate
+										? format(new Date(stats.lastCommitDate), 'MMM d, yyyy')
+										: 'N/A'}
 								</span>
 							</div>
 						</HandDrawnCard>

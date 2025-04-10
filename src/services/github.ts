@@ -61,7 +61,7 @@ export type GitHubStats = {
 	totalCommits?: number;
 	recentCommits?: number;
 	streakDays?: number;
-	lastCommitDate?: string;
+	lastCommitDate?: Date | string;
 	topRepos?: { name: string; commits: number }[];
 	recentActivity?: ActivityEvent[]; // Changed from Commit[] to ActivityEvent[]
 	avatar?: string;
@@ -104,6 +104,35 @@ interface PushEventPayload {
 	ref_type?: string;
 	[key: string]: any; // Allow other properties
 }
+
+// Helper function to initialize default repo tracking
+const initializeDefaultRepoTracking = async (token: string): Promise<void> => {
+	console.log('Initializing default repository tracking settings...');
+	try {
+		const octokit = new Octokit({ auth: token });
+		const allRepos = await fetchAllRepos(octokit);
+		const nonForkedRepoNames = allRepos
+			.filter((repo) => !repo.fork)
+			.map((repo) => repo.name);
+
+		if (nonForkedRepoNames.length > 0) {
+			localStorage.setItem(
+				'github_excluded_repos',
+				JSON.stringify(nonForkedRepoNames)
+			);
+			console.log(
+				`Successfully set ${nonForkedRepoNames.length} non-forked repos as excluded by default.`
+			);
+		} else {
+			// Ensure the key exists even if empty, to prevent re-running
+			localStorage.setItem('github_excluded_repos', '[]');
+			console.log('No non-forked repositories found to exclude by default.');
+		}
+	} catch (error) {
+		console.error('Error initializing default repository tracking:', error);
+		// Do not block login if this fails, but log the error
+	}
+};
 
 // Function to handle GitHub OAuth login via Supabase
 export const loginWithGitHub = async () => {
@@ -180,12 +209,12 @@ export const handleAuthCallback = async (): Promise<string | null> => {
 
 		// Try to get provider token - this contains GitHub access token
 		const { provider_token, access_token } = session;
+		let githubToken: string | null = null;
 
 		if (provider_token) {
 			console.log('Provider token found, storing in localStorage');
-			// Store the GitHub token in localStorage for app use
-			localStorage.setItem('github_token', provider_token);
-			return provider_token;
+			githubToken = provider_token;
+			localStorage.setItem('github_token', githubToken);
 		} else if (access_token) {
 			// Try to get the GitHub token from the provider token in user metadata
 			try {
@@ -204,23 +233,39 @@ export const handleAuthCallback = async (): Promise<string | null> => {
 					user?.app_metadata?.provider === 'github' &&
 					user?.app_metadata?.provider_token
 				) {
-					const githubToken = user.app_metadata.provider_token;
+					githubToken = user.app_metadata.provider_token;
 					console.log('Found GitHub token in user metadata');
 					localStorage.setItem('github_token', githubToken);
-					return githubToken;
 				}
 			} catch (metadataError) {
 				console.error('Error getting user metadata:', metadataError);
 			}
 
-			// If no provider token but we have an access token, we can try to use that
-			console.log('No provider token found, using access token instead');
-			localStorage.setItem('github_token', access_token);
-			return access_token;
+			// If no provider token found via metadata, use the access token
+			if (!githubToken) {
+				console.log('No provider token found, using access token instead');
+				githubToken = access_token;
+				localStorage.setItem('github_token', githubToken);
+			}
 		}
 
-		console.warn('Session exists but no token found');
-		return null;
+		// After successfully obtaining and storing a token:
+		if (githubToken) {
+			// Check if this is the first time setting up repo tracking
+			const hasTrackedSettings = localStorage.getItem('github_tracked_repos');
+			const hasExcludedSettings = localStorage.getItem('github_excluded_repos');
+
+			if (hasTrackedSettings === null && hasExcludedSettings === null) {
+				console.log('No existing repository tracking settings found.');
+				await initializeDefaultRepoTracking(githubToken);
+			} else {
+				console.log('Existing repository tracking settings found.');
+			}
+			return githubToken;
+		} else {
+			console.warn('Session exists but no token could be obtained');
+			return null;
+		}
 	} catch (error) {
 		console.error('Error during GitHub session handling:', error);
 		throw error; // Re-throw to allow context to show error message
@@ -257,6 +302,8 @@ export const logout = async () => {
 	localStorage.removeItem('github_token');
 	localStorage.removeItem('user_lives');
 	localStorage.removeItem('last_processed_date');
+	localStorage.removeItem('github_tracked_repos'); // Clear tracked repos
+	localStorage.removeItem('github_excluded_repos'); // Clear excluded repos
 	await supabase.auth.signOut();
 };
 
@@ -1099,9 +1146,11 @@ export const fetchGitHubStats = async (
 			);
 
 			// Last Commit Date based on tracked commits
-			let lastCommitDate = new Date().toISOString(); // Default fallback
+			let lastCommitDate: string;
 			if (trackedCommitData.length > 0) {
 				lastCommitDate = trackedCommitData[0].date; // Use most recent tracked commit
+			} else {
+				lastCommitDate = 'The Last Supper'; // Funny placeholder
 			}
 
 			// --- Assemble Final Stats ---
