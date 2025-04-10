@@ -266,7 +266,7 @@ const Dashboard = () => {
 							</h2>
 							<CommitMeter
 								value={stats.recentCommits}
-								maxValue={30}
+								maxValue={DAILY_GOAL}
 								className='my-8'
 							/>
 							<p className='text-pencil italic mt-4'>
