@@ -124,8 +124,8 @@ const Dashboard = () => {
 			)} */}
 
 			<div className='max-w-4xl w-full mx-auto'>
-				<div className='flex justify-between items-center mb-6'>
-					<div className='flex items-center gap-4'>
+				<div className='flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4'>
+					<div className='flex items-center gap-4 flex-wrap'>
 						<h1 className='text-3xl md:text-4xl font-handwritten'>
 							Your Commit Report
 						</h1>
@@ -146,12 +146,12 @@ const Dashboard = () => {
 							</span>
 						)}
 					</div>
-					<div className='flex flex-wrap gap-2 justify-end'>
+					<div className='flex flex-wrap gap-2 justify-end w-full sm:w-auto'>
 						<HandDrawnButton
 							variant='outline'
 							onClick={toggleRepoSettings}
 							disabled={isLoading}
-							className='flex items-center gap-2'
+							className='flex items-center gap-2 w-full sm:w-auto justify-center'
 						>
 							<Settings className='h-4 w-4' />
 							Settings
@@ -160,7 +160,7 @@ const Dashboard = () => {
 							variant='outline'
 							onClick={handleRefresh}
 							disabled={isLoading}
-							className='flex items-center gap-2'
+							className='flex items-center gap-2 w-full sm:w-auto justify-center'
 						>
 							<RefreshCw className='h-4 w-4' />
 							Refresh
@@ -169,7 +169,7 @@ const Dashboard = () => {
 							variant='outline'
 							onClick={handleLogout}
 							disabled={isLoading}
-							className='flex items-center gap-2'
+							className='flex items-center gap-2 w-full sm:w-auto justify-center'
 						>
 							<LogOut className='h-4 w-4' />
 							Logout
