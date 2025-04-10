@@ -916,7 +916,19 @@ export const fetchGitHubStats = async (
 				.slice(0, 5);
 
 			// Fetch recent activity using the Events API (still uses overall events)
-			const recentActivityEvents = await fetchUserEvents(octokit, 5); // Get top 5 recent events
+			const recentActivityEvents_unfiltered = await fetchUserEvents(
+				octokit,
+				10
+			); // Fetch a bit more to allow for filtering
+
+			// Filter these events to only include those from tracked repos
+			const recentActivityEvents = recentActivityEvents_unfiltered.filter(
+				(event) =>
+					event.repoName && repoTrackingStatusMap.get(event.repoName) === true
+			);
+			console.log(
+				`Filtered ${recentActivityEvents_unfiltered.length} raw events down to ${recentActivityEvents.length} events from tracked repos.`
+			);
 
 			// Create ActivityEvents for the latest *tracked* commits
 			const latestCommitEvents: ActivityEvent[] = trackedCommitData
@@ -935,7 +947,7 @@ export const fetchGitHubStats = async (
 				});
 
 			// Combine events and latest *tracked* commits for recent activity feed
-			let combinedActivity = [...latestCommitEvents, ...recentActivityEvents];
+			let combinedActivity = [...latestCommitEvents, ...recentActivityEvents]; // Use the filtered list
 			combinedActivity.sort(
 				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
 			);
