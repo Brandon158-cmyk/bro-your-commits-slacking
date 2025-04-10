@@ -488,17 +488,25 @@ export const fetchContributionData = async (
 	}
 };
 
-// Function to fetch user events from GitHub's Events API
+// Function to fetch user events from GitHub's Events API (includes private activity)
 export const fetchUserEvents = async (
 	octokit: Octokit,
-	username: string,
+	// username: string, // No longer needed, uses authenticated user
 	count: number = 10 // Fetch last 10 events by default
 ): Promise<ActivityEvent[]> => {
 	try {
-		console.log(`Fetching recent activity events for ${username}`);
+		// Get the authenticated user's username first to satisfy types
+		const { data: authUserData } = await octokit.rest.users.getAuthenticated();
+		const username = authUserData.login;
+
+		console.log(
+			`Fetching recent activity events for authenticated user (${username})`
+		);
+
 		const { data: events } =
-			await octokit.rest.activity.listPublicEventsForUser({
-				username,
+			// Use listEventsForAuthenticatedUser to include private repo activity
+			await octokit.rest.activity.listEventsForAuthenticatedUser({
+				username, // Pass username to satisfy TS types, though API uses token
 				per_page: count * 2, // Fetch more initially to filter down
 			});
 
@@ -834,8 +842,8 @@ export const fetchGitHubStats = async (
 				.sort((a, b) => b.commits - a.commits)
 				.slice(0, 5);
 
-			// Fetch recent activity using the Events API
-			const recentActivity = await fetchUserEvents(octokit, username, 5); // Get top 5 recent events
+			// Fetch recent activity using the Events API (now includes private)
+			const recentActivity = await fetchUserEvents(octokit, 5); // Removed username argument, Get top 5 recent events
 
 			// Calculate streaks
 			const streakDays = calculateStreak(commitData);
