@@ -857,6 +857,49 @@ export const fetchGitHubStats = async (
 			// Calculate streaks
 			const streakDays = calculateStreak(commitData);
 
+			// Create ActivityEvents for the latest individual commits
+			const latestCommitEvents: ActivityEvent[] = commitData
+				.slice(0, 10) // Take top 10 commits
+				.map((commit) => {
+					const shortMessage = commit.message.split('\n')[0].substring(0, 70);
+					return {
+						type: 'Commit',
+						date: commit.date,
+						summary: `Commit: ${shortMessage}${
+							commit.message.length > 70 ? '...' : ''
+						}`,
+						url: commit.url,
+						repoName: commit.repo,
+					};
+				});
+
+			// Combine events and latest commits
+			let combinedActivity = [...latestCommitEvents, ...recentActivity];
+
+			// Sort by date (newest first)
+			combinedActivity.sort(
+				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+			);
+
+			// Deduplicate based on URL (preferring earlier entries - which are newer after sort)
+			const uniqueActivity: ActivityEvent[] = [];
+			const seenUrls = new Set<string>();
+
+			for (const event of combinedActivity) {
+				if (event.url) {
+					if (!seenUrls.has(event.url)) {
+						uniqueActivity.push(event);
+						seenUrls.add(event.url);
+					}
+				} else {
+					// Keep events without URLs (e.g., branch creation)
+					uniqueActivity.push(event);
+				}
+			}
+
+			// Limit to the top 10 unique activities
+			const finalRecentActivity = uniqueActivity.slice(0, 10);
+
 			// Count recent commits (current calendar month)
 			const now = new Date();
 			const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -983,7 +1026,7 @@ export const fetchGitHubStats = async (
 				streakDays,
 				lastCommitDate,
 				topRepos,
-				recentActivity,
+				recentActivity: finalRecentActivity, // Use the processed list
 				avatar: userData.avatar_url,
 				username: userData.login,
 				fullName: userData.name || userData.login,
