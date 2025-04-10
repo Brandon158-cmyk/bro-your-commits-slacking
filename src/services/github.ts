@@ -17,6 +17,9 @@ export type GitHubStats = {
 	lastCommitDate: string;
 	topRepos: { name: string; commits: number }[];
 	recentActivity: Commit[];
+	avatar?: string; // Add avatar URL
+	username?: string; // Add GitHub username
+	fullName?: string; // Add full name if available
 };
 
 // GitHub OAuth configuration
@@ -105,22 +108,50 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 
 		// Check if token starts with "github_" prefix (our simulated token)
 		if (token.startsWith('github_')) {
-			// Use a simulated response for demo purposes
-			console.log(
-				"Using simulated GitHub data since we don't have a real token"
-			);
-			return generateSimulatedStats();
+			// Initialize Octokit with the code as token (this won't work in production)
+			// This is just for demo purposes - in a real app, you need a backend to exchange the code for a token
+			const octokit = new Octokit();
+			
+			try {
+				// Try to get authenticated user information
+				const { data: userData } = await octokit.rest.users.getAuthenticated();
+				
+				// If we get here, the token somehow worked (unlikely in this demo)
+				console.log("Successfully authenticated with GitHub API", userData);
+				return fetchRealGitHubStats(octokit, userData.login);
+			} catch (error) {
+				console.warn("Using simulated GitHub data since authentication failed:", error);
+				return generateSimulatedStats();
+			}
 		}
 
 		// Initialize Octokit with the token
 		const octokit = new Octokit({ auth: token });
-
+		
 		// Get user information
-		const { data: userData } = await octokit.request('GET /user');
+		const { data: userData } = await octokit.rest.users.getAuthenticated();
+		console.log("Authenticated GitHub user:", userData.login);
+		
+		return fetchRealGitHubStats(octokit, userData.login);
+	} catch (error) {
+		console.error('Error fetching GitHub stats:', error);
+		// If real API call fails, fall back to simulated data
+		return generateSimulatedStats();
+	}
+};
+
+// Function to fetch real GitHub stats
+const fetchRealGitHubStats = async (octokit: Octokit, username: string): Promise<GitHubStats> => {
+	try {
+		// Get user information for profile data
+		const { data: userData } = await octokit.rest.users.getByUsername({
+			username,
+		});
 
 		// Get user's repositories
-		const { data: repos } = await octokit.request('GET /user/repos', {
-			sort: 'pushed',
+		const { data: repos } = await octokit.rest.repos.listForUser({
+			username,
+			sort: 'updated',
 			per_page: 100,
 		});
 
@@ -129,19 +160,17 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 		let topRepos: { name: string; commits: number }[] = [];
 
 		// We'll limit to processing 5 most recently updated repos to avoid rate limits
-		const recentRepos = repos.slice(0, 5);
+		const recentRepos = repos.slice(0, 10);
 
 		for (const repo of recentRepos) {
 			try {
-				const { data: repoCommits } = await octokit.request(
-					'GET /repos/{owner}/{repo}/commits',
-					{
-						owner: userData.login,
-						repo: repo.name,
-						author: userData.login,
-						per_page: 100,
-					}
-				);
+				// Get commits for this repo
+				const { data: repoCommits } = await octokit.rest.repos.listCommits({
+					owner: repo.owner.login,
+					repo: repo.name,
+					author: username,
+					per_page: 30, // Limit per repo to avoid rate limits
+				});
 
 				allCommits = [...allCommits, ...repoCommits];
 
@@ -157,7 +186,10 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 		}
 
 		// Sort top repos by number of commits
-		topRepos.sort((a, b) => b.commits - a.commits).slice(0, 3);
+		topRepos.sort((a, b) => b.commits - a.commits);
+		
+		// Limit to top 3 repos
+		topRepos = topRepos.slice(0, 3);
 
 		// Filter recent commits (last 30 days)
 		const thirtyDaysAgo = new Date();
@@ -192,13 +224,15 @@ export const fetchGitHubStats = async (token: string): Promise<GitHubStats> => {
 			recentCommits: recentCommits.length,
 			streakDays,
 			lastCommitDate,
-			topRepos: topRepos.slice(0, 3),
+			topRepos,
 			recentActivity,
+			avatar: userData.avatar_url,
+			username: userData.login,
+			fullName: userData.name || userData.login,
 		};
 	} catch (error) {
-		console.error('Error fetching GitHub stats:', error);
-		// If real API call fails, fall back to simulated data
-		return generateSimulatedStats();
+		console.error('Error fetching real GitHub stats:', error);
+		throw error;
 	}
 };
 
@@ -237,5 +271,8 @@ const generateSimulatedStats = (): GitHubStats => {
 					Math.random() * 1000
 				)}`,
 			})),
+		avatar: "https://avatars.githubusercontent.com/u/12345678",
+		username: "github-user",
+		fullName: "GitHub User",
 	};
 };

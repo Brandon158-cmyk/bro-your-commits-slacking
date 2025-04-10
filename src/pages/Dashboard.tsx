@@ -1,13 +1,15 @@
 
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, Clock, GitCommit, ArrowUpRight, RefreshCw, LogOut } from "lucide-react";
+import { Calendar, Clock, GitCommit, ArrowUpRight, RefreshCw, LogOut, User } from "lucide-react";
 import { format } from "date-fns";
 import { HandDrawnButton } from "@/components/custom/hand-drawn-button";
 import { HandDrawnCard } from "@/components/custom/hand-drawn-card";
 import { CommitMeter } from "@/components/custom/commit-meter";
 import { useGitHub } from "@/contexts/GitHubContext";
 import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -49,7 +51,20 @@ const Dashboard = () => {
     <div className="min-h-screen flex flex-col p-4 md:p-8">
       <div className="max-w-4xl w-full mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl md:text-4xl font-handwritten">Your Commit Report</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-3xl md:text-4xl font-handwritten">Your Commit Report</h1>
+            {githubStats?.avatar && (
+              <Avatar className="h-10 w-10 border-2 border-ink-blue">
+                <AvatarImage src={githubStats.avatar} alt={githubStats.username || 'User'} />
+                <AvatarFallback>
+                  <User className="h-6 w-6" />
+                </AvatarFallback>
+              </Avatar>
+            )}
+            {githubStats?.username && (
+              <span className="text-sm font-medium text-pencil">@{githubStats.username}</span>
+            )}
+          </div>
           <div className="flex gap-2">
             <HandDrawnButton 
               variant="outline" 
@@ -72,11 +87,31 @@ const Dashboard = () => {
         </div>
 
         {isLoading ? (
-          <HandDrawnCard className="text-center py-12">
-            <div className="animate-pulse font-handwritten text-xl">
-              Checking your commit game... Hold up! ⏳
+          <div className="space-y-6">
+            <HandDrawnCard className="p-6">
+              <div className="space-y-4">
+                <Skeleton className="h-8 w-3/4" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-4 w-1/2" />
+              </div>
+            </HandDrawnCard>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <HandDrawnCard className="p-6">
+                <Skeleton className="h-6 w-1/3 mb-4" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              </HandDrawnCard>
+              <HandDrawnCard className="p-6">
+                <Skeleton className="h-6 w-1/3 mb-4" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              </HandDrawnCard>
             </div>
-          </HandDrawnCard>
+          </div>
         ) : githubStats ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <HandDrawnCard variant="notebook" className="md:col-span-2">
@@ -156,6 +191,20 @@ const Dashboard = () => {
                 ))}
               </div>
             </HandDrawnCard>
+
+            {githubStats.topRepos.length > 0 && (
+              <HandDrawnCard className="md:col-span-2">
+                <h3 className="text-xl font-handwritten mb-4">Top Repositories</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {githubStats.topRepos.map((repo) => (
+                    <div key={repo.name} className="border border-pencil-light rounded-lg p-4">
+                      <h4 className="font-medium truncate">{repo.name}</h4>
+                      <p className="text-sm text-pencil">{repo.commits} commits</p>
+                    </div>
+                  ))}
+                </div>
+              </HandDrawnCard>
+            )}
           </div>
         ) : (
           <HandDrawnCard className="text-center py-12">
