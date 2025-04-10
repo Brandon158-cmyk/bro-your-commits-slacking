@@ -32,7 +32,6 @@ export const loginWithGitHub = async () => {
 			provider: 'github',
 			options: {
 				redirectTo: window.location.origin,
-				// Update scopes to include private repos
 				scopes: 'repo read:user user:email',
 			},
 		});
