@@ -99,7 +99,7 @@ const Dashboard = () => {
 						)}
 					</div>
 					<div className='flex gap-2'>
-						<Button
+						<HandDrawnButton
 							variant='outline'
 							onClick={handleRefresh}
 							disabled={isLoading}
@@ -107,8 +107,8 @@ const Dashboard = () => {
 						>
 							<RefreshCw className='h-4 w-4' />
 							Refresh
-						</Button>
-						<Button
+						</HandDrawnButton>
+						<HandDrawnButton
 							variant='outline'
 							onClick={handleLogout}
 							disabled={isLoading}
@@ -116,7 +116,7 @@ const Dashboard = () => {
 						>
 							<LogOut className='h-4 w-4' />
 							Logout
-						</Button>
+						</HandDrawnButton>
 					</div>
 				</div>
 
@@ -259,10 +259,10 @@ const Dashboard = () => {
 						<div className='font-handwritten text-xl'>
 							Couldn't load your GitHub stats, bro! Try refreshing.
 						</div>
-						<Button onClick={handleRefresh} className='mt-4'>
+						<HandDrawnButton onClick={handleRefresh} className='mt-4'>
 							<RefreshCw className='h-4 w-4 mr-2' />
 							Try Again
-						</Button>
+						</HandDrawnButton>
 					</HandDrawnCard>
 				)}
 			</div>
