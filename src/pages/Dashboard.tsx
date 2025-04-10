@@ -29,6 +29,7 @@ import {
 	type ActivityEvent,
 } from '@/services/github';
 import { RepoGuide } from '@/components/custom/RepoGuide';
+import { cn } from '@/lib/utils';
 
 const Dashboard = () => {
 	const navigate = useNavigate();
@@ -36,6 +37,7 @@ const Dashboard = () => {
 		useGitHub();
 	const [showRepoSettings, setShowRepoSettings] = useState(false);
 	const [showGuide, setShowGuide] = useState(true);
+	const [togglingRepo, setTogglingRepo] = useState<string | null>(null);
 
 	const DAILY_GOAL = 3; // Define daily goal constant
 
@@ -61,14 +63,23 @@ const Dashboard = () => {
 		}
 	};
 
-	const handleToggleRepository = (repoName: string, isTracked: boolean) => {
-		toggleRepositoryTracking(repoName, isTracked);
-		handleRefresh();
+	const handleToggleRepository = async (
+		repoName: string,
+		isTracked: boolean
+	) => {
+		setTogglingRepo(repoName);
+		try {
+			toggleRepositoryTracking(repoName, isTracked);
+			await handleRefresh();
+		} catch (error) {
+			console.error('Error toggling repository:', error);
+		} finally {
+			setTogglingRepo(null);
+		}
 	};
 
 	const toggleRepoSettings = () => {
 		setShowRepoSettings(!showRepoSettings);
-		// Hide the guide when settings are opened
 		if (!showRepoSettings) {
 			setShowGuide(false);
 		}
@@ -81,9 +92,8 @@ const Dashboard = () => {
 	const getSlackingMessage = () => {
 		if (!stats) return 'Loading your stats...';
 
-		// Use commitsToday and DAILY_GOAL instead of recentCommits
-		const { commitsToday = 0 } = stats; // Default to 0 if undefined
-		const goal = DAILY_GOAL; // Use the constant defined in the component
+		const { commitsToday = 0 } = stats;
+		const goal = DAILY_GOAL;
 		const bonusGoal = goal * 2;
 
 		if (commitsToday === 0)
@@ -109,7 +119,6 @@ const Dashboard = () => {
 
 	return (
 		<div className='min-h-screen flex flex-col p-4 md:p-8'>
-			{/* Animated character guide */}
 			{showGuide && stats?.allRepositories && (
 				<RepoGuide onToggleSettings={toggleRepoSettings} />
 			)}
@@ -167,7 +176,6 @@ const Dashboard = () => {
 					</div>
 				</div>
 
-				{/* Repository Management Section */}
 				{showRepoSettings && stats?.allRepositories && (
 					<HandDrawnCard className='mb-6'>
 						<div className='flex justify-between items-center mb-4'>
@@ -211,9 +219,15 @@ const Dashboard = () => {
 										onClick={() =>
 											handleToggleRepository(repo.name, !repo.isTracked)
 										}
-										className={repo.isTracked ? 'bg-ink-blue text-white' : ''}
+										disabled={togglingRepo === repo.name}
+										className={cn(
+											repo.isTracked ? 'bg-ink-blue text-white' : '',
+											'w-[120px]'
+										)}
 									>
-										{repo.isTracked ? (
+										{togglingRepo === repo.name ? (
+											'Saving...'
+										) : repo.isTracked ? (
 											<>
 												<Check className='h-4 w-4 mr-1' /> Tracking
 											</>
