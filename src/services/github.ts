@@ -86,6 +86,8 @@ export type GitHubStats = {
 		followers: number;
 		following: number;
 	};
+	totalTrackedCommits?: number;
+	commitsThisWeek?: number;
 };
 
 // Define a type for the expected PushEvent payload structure
@@ -845,28 +847,80 @@ export const fetchGitHubStats = async (
 			// Get deduplicated commits
 			commitData = Array.from(commitMap.values());
 			console.log(
-				`Total commit objects after deduplication: ${commitData.length}`
+				`Total commit objects after deduplication (all repos): ${commitData.length}`
 			);
 
-			// Sort commits by date (newest first)
+			// Sort all commits by date (newest first) - still useful for some contexts maybe
 			commitData.sort(
 				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
 			);
 
-			const topRepos = Object.entries(repoCommitCounts)
+			// --- Filter Data Based on Tracked Repos ---
+
+			// Get tracked/excluded repo lists
+			const trackedRepoSettings = getTrackedRepositories();
+			const excludedRepoSettings = getExcludedRepositories();
+			const hasSpecificTracking =
+				trackedRepoSettings.length > 0 || excludedRepoSettings.length > 0;
+
+			// Create a map for all repos with their tracking status
+			const repoTrackingStatusMap = new Map<string, boolean>();
+			allRepos.forEach((repo) => {
+				const isExplicitlyTracked = trackedRepoSettings.includes(repo.name);
+				const isExplicitlyExcluded = excludedRepoSettings.includes(repo.name);
+				// Default behavior: track if no specific settings, otherwise track if explicitly included
+				// Exclude if explicitly excluded, overriding other rules.
+				let isTracked = false;
+				if (isExplicitlyExcluded) {
+					isTracked = false;
+				} else if (isExplicitlyTracked) {
+					isTracked = true;
+				} else if (!hasSpecificTracking && !repo.fork) {
+					// If no specific lists are used, track all non-forked repos by default
+					isTracked = true;
+				}
+				repoTrackingStatusMap.set(repo.name, isTracked);
+			});
+
+			// Filter commitData to only include commits from tracked repos
+			const trackedCommitData = commitData.filter(
+				(commit) =>
+					commit.repo && repoTrackingStatusMap.get(commit.repo) === true
+			);
+			console.log(
+				`Total commits in tracked repos: ${trackedCommitData.length}`
+			);
+
+			// Re-sort tracked commits by date (newest first)
+			trackedCommitData.sort(
+				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+			);
+
+			// --- Calculate Stats Based on TRACKED Data ---
+
+			// Total commits (now means tracked commits)
+			const totalCommits = trackedCommitData.length;
+			const detailedCommits = trackedCommitData.length; // Align this too
+
+			// Top Repos based on tracked commits
+			const trackedRepoCommitCounts: { [key: string]: number } = {};
+			trackedCommitData.forEach((commit) => {
+				if (commit.repo) {
+					trackedRepoCommitCounts[commit.repo] =
+						(trackedRepoCommitCounts[commit.repo] || 0) + 1;
+				}
+			});
+			const topRepos = Object.entries(trackedRepoCommitCounts)
 				.map(([name, commits]) => ({ name, commits }))
 				.sort((a, b) => b.commits - a.commits)
 				.slice(0, 5);
 
-			// Fetch recent activity using the Events API (now includes private)
-			const recentActivity = await fetchUserEvents(octokit, 5); // Removed username argument, Get top 5 recent events
+			// Fetch recent activity using the Events API (still uses overall events)
+			const recentActivityEvents = await fetchUserEvents(octokit, 5); // Get top 5 recent events
 
-			// Calculate streaks
-			const streakDays = calculateStreak(commitData);
-
-			// Create ActivityEvents for the latest individual commits
-			const latestCommitEvents: ActivityEvent[] = commitData
-				.slice(0, 10) // Take top 10 commits
+			// Create ActivityEvents for the latest *tracked* commits
+			const latestCommitEvents: ActivityEvent[] = trackedCommitData
+				.slice(0, 10) // Take top 10 tracked commits
 				.map((commit) => {
 					const shortMessage = commit.message.split('\n')[0].substring(0, 70);
 					return {
@@ -880,18 +934,13 @@ export const fetchGitHubStats = async (
 					};
 				});
 
-			// Combine events and latest commits
-			let combinedActivity = [...latestCommitEvents, ...recentActivity];
-
-			// Sort by date (newest first)
+			// Combine events and latest *tracked* commits for recent activity feed
+			let combinedActivity = [...latestCommitEvents, ...recentActivityEvents];
 			combinedActivity.sort(
 				(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
 			);
-
-			// Deduplicate based on URL (preferring earlier entries - which are newer after sort)
 			const uniqueActivity: ActivityEvent[] = [];
 			const seenUrls = new Set<string>();
-
 			for (const event of combinedActivity) {
 				if (event.url) {
 					if (!seenUrls.has(event.url)) {
@@ -899,150 +948,79 @@ export const fetchGitHubStats = async (
 						seenUrls.add(event.url);
 					}
 				} else {
-					// Keep events without URLs (e.g., branch creation)
 					uniqueActivity.push(event);
 				}
 			}
-
-			// Limit to the top 6 unique activities
 			const finalRecentActivity = uniqueActivity.slice(0, 6);
 
-			// Count recent commits (current calendar month)
+			// Calculate Streak based on *tracked* commits
+			const streakDays = calculateStreak(trackedCommitData);
+
+			// Calculate Commits This Month based on *tracked* commits
 			const now = new Date();
 			const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 			console.log(
-				`Counting commits since the start of the month: ${startOfMonth.toISOString()}`
+				`Counting tracked commits since start of month: ${startOfMonth.toISOString()}`
 			);
-
-			// Count recent commits from direct API for the current month
-			console.log('--- Filtering commits for current month ---');
-			const recentCommitsFromAPI = commitData.filter((commit) => {
+			const recentCommits = trackedCommitData.filter((commit) => {
 				const commitDate = new Date(commit.date);
-				const isRecent = commitDate >= startOfMonth;
-				// More verbose logging for debugging
-				console.log(
-					`   Commit SHA: ${commit.sha.substring(
-						0,
-						7
-					)}, Date: ${commitDate.toISOString()}, Is Recent: ${isRecent}`
-				);
-				return isRecent;
+				return commitDate >= startOfMonth;
 			}).length;
-			console.log('--- Finished filtering ---');
-
-			console.log(`Found ${recentCommitsFromAPI} commits in the current month`);
-
-			// Initialize GraphQL counter outside the if block
-			let graphQLRecentContributions = 0;
-
-			// If we have GraphQL data, also print out the contributions by day for comparison
-			if (
-				contributionCalendar?.weeks &&
-				contributionCalendar.weeks.length > 0
-			) {
-				console.log(`GraphQL contribution data by day (current month):`);
-				// Reset counter inside if needed, or just use the outer scope one
-				// graphQLRecentContributions = 0; // Uncomment if you want to reset per function call
-
-				for (const week of contributionCalendar.weeks) {
-					for (const day of week.contributionDays) {
-						const contributionDate = new Date(day.date);
-						if (contributionDate >= startOfMonth) {
-							console.log(
-								`  ${contributionDate.toLocaleDateString()}: ${
-									day.contributionCount
-								} contributions`
-							);
-							if (day.contributionCount > 0) {
-								graphQLRecentContributions += day.contributionCount;
-							}
-						}
-					}
-				}
-
-				console.log(
-					`Total GraphQL contributions in current month: ${graphQLRecentContributions}`
-				);
-			}
-
-			// Use the GraphQL contribution count for recent activity as it appears more comprehensive
-			// even though it includes non-commit contributions.
-			const recentCommits =
-				graphQLRecentContributions > 0
-					? graphQLRecentContributions
-					: recentCommitsFromAPI;
-
 			console.log(
-				`Recent commits from API (current month): ${recentCommitsFromAPI}`
-			);
-			console.log(
-				`Total contributions from GraphQL (current month): ${graphQLRecentContributions}`
-			);
-			console.log(
-				`Using final count for 'commits this month': ${recentCommits}`
+				`Found ${recentCommits} tracked commits in the current month`
 			);
 
-			// Get the most recent commit date (still useful)
-			let lastCommitDate = new Date().toISOString();
-			if (commitData.length > 0) {
-				lastCommitDate = commitData[0].date;
-			}
-			// Cross-check with GraphQL for potentially more recent contribution date
-			if (
-				contributionCalendar?.weeks &&
-				contributionCalendar.weeks.length > 0
-			) {
-				let mostRecentGraphQLDate = '';
-				for (const week of contributionCalendar.weeks) {
-					for (const day of week.contributionDays) {
-						if (day.contributionCount > 0) {
-							if (!mostRecentGraphQLDate || day.date > mostRecentGraphQLDate) {
-								mostRecentGraphQLDate = day.date;
-							}
-						}
-					}
-				}
-				if (
-					mostRecentGraphQLDate &&
-					new Date(mostRecentGraphQLDate) > new Date(lastCommitDate)
-				) {
-					lastCommitDate = mostRecentGraphQLDate;
-					console.log(
-						`Using more recent date from GraphQL: ${new Date(
-							lastCommitDate
-						).toLocaleDateString()}`
-					);
-				}
+			// Calculate Commits This Week based on *tracked* commits
+			const dayOfWeek = now.getDay(); // 0 = Sunday
+			const startOfWeek = new Date(now);
+			startOfWeek.setDate(now.getDate() - dayOfWeek);
+			startOfWeek.setHours(0, 0, 0, 0);
+			console.log(
+				`Calculating tracked commits since start of week: ${startOfWeek.toISOString()}`
+			);
+			const commitsThisWeek = trackedCommitData.filter((commit) => {
+				const commitDate = new Date(commit.date);
+				return commitDate >= startOfWeek;
+			}).length;
+			console.log(
+				`Found ${commitsThisWeek} commits this week in tracked repos`
+			);
+
+			// Last Commit Date based on *tracked* commits
+			let lastCommitDate = new Date().toISOString(); // Default fallback
+			if (trackedCommitData.length > 0) {
+				lastCommitDate = trackedCommitData[0].date; // Use most recent tracked commit
 			}
 
-			// Get all repositories with tracking status
-			const trackedRepos = getTrackedRepositories();
-			const excludedRepos = getExcludedRepositories();
+			// --- Assemble Final Stats ---
 
-			const allRepositories = allRepos.map((repo) => ({
+			// Get all repositories with updated tracking status for the UI list
+			const allRepositoriesForUI = allRepos.map((repo) => ({
 				name: repo.name,
-				isTracked:
-					trackedRepos.includes(repo.name) ||
-					(!trackedRepos.length && !excludedRepos.includes(repo.name)),
+				isTracked: repoTrackingStatusMap.get(repo.name) ?? false,
 				isPrivate: repo.private,
 			}));
 
 			return {
-				totalCommits: commitData.length,
-				recentCommits,
-				streakDays,
-				lastCommitDate,
-				topRepos,
-				recentActivity: finalRecentActivity, // Use the processed list
+				// Core stats now based on tracked repos
+				totalCommits, // Count from tracked repos
+				recentCommits, // Count this month from tracked repos
+				streakDays, // Streak from tracked repos
+				lastCommitDate, // Date from tracked repos
+				topRepos, // Top repos from tracked repos
+				detailedCommits, // Count from tracked repos (same as totalCommits)
+				commitsThisWeek, // Count this week from tracked repos
+
+				// Other info
+				recentActivity: finalRecentActivity, // Combined feed (includes tracked commits)
 				avatar: userData.avatar_url,
 				username: userData.login,
 				fullName: userData.name || userData.login,
-				allRepositories,
-				contributionCalendar,
-				detailedCommits: commitData.length,
-				commitData,
-				stars: starsCount,
-				forks: forksCount,
+				allRepositories: allRepositoriesForUI, // List for UI tracking toggles
+				contributionCalendar, // Still the overall GraphQL calendar
+				commitData, // Keep original full commit list for potential other uses
+				stars: starsCount, // Still overall stars
+				forks: forksCount, // Still overall forks
 				profileInfo: {
 					name: userData.name || userData.login,
 					avatar: userData.avatar_url,
@@ -1051,7 +1029,6 @@ export const fetchGitHubStats = async (
 					followers: userData.followers,
 					following: userData.following,
 				},
-				totalContributions,
 			};
 		} catch (userError) {
 			console.error('Error getting authenticated user:', userError);
